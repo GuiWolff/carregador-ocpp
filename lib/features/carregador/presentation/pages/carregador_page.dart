@@ -914,57 +914,6 @@ class _CarregadorBotaoDetalhes extends StatelessWidget {
   }
 }
 
-class _EstadoCarregadorChip extends StatelessWidget {
-  const _EstadoCarregadorChip({
-    required this.estado,
-    required this.ocupado,
-    required this.corEstado,
-  });
-
-  final EstadoCarregador estado;
-  final bool ocupado;
-  final Color corEstado;
-
-  @override
-  Widget build(BuildContext context) {
-    final tema = Theme.of(context);
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: corEstado.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: corEstado.withValues(alpha: 0.32)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            if (ocupado) ...<Widget>[
-              SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: corEstado,
-                ),
-              ),
-              const SizedBox(width: 7),
-            ],
-            Text(
-              ocupado ? 'Processando' : estado.rotulo,
-              style: tema.textTheme.labelMedium?.copyWith(
-                color: corEstado,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _DisplayCarregador extends StatelessWidget {
   const _DisplayCarregador({super.key, required this.estadoVisual});
 
@@ -1648,10 +1597,8 @@ Color _corStatusConectorCentral(_EstadoVisualCarregador estadoVisual) {
   return estadoVisual.corEstado;
 }
 
-Color _corStatusVisualCarregador(
-  ThemeData tema,
-  _EstadoVisualCarregador estadoVisual,
-) {
+Color _corStatusVisualCarregador(ThemeData tema, _EstadoVisualCarregador estadoVisual) {
+
   if (estadoVisual.ocupado) {
     return estadoVisual.corEstado;
   }
