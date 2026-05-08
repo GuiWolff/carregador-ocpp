@@ -3,10 +3,10 @@ Você é um desenvolvedor Senior em dart / Flutter
 Leia o resumo do prompt anterior, se houver, e continue a evolução.
 
 ## Arquivos
-Insira a referencia, exemplo: `path/to/file.ext` ou `@thisFile` para referenciar o arquivo atual.
+@file:carregador_page.dart
 
 ## Regras
-- vazio
+- Mantenha as edições que fiz manualmente
 
 ## Restrições
 - Não reescreva os arquivos inteiros quando for executar a tarefa, apenas altere as linhas necessárias
@@ -16,14 +16,29 @@ Insira a referencia, exemplo: `path/to/file.ext` ou `@thisFile` para referenciar
 3. rodar o script @file:base-prompt-tarefas.md com o [NOME_DA_PASTA] já definido;
 
 # Descrição
-- Adicionar display nos carregadores que estão na lita da `CarregadoresPage()`
+- Melhorias para os conectores
 
 ## Objetivo
-- Adicione ao display os seguintes itens:
-    - Potência atual (W)
-    - Energia consumida (kWh)
-    - SoC da bateria (%)
-    - Tempo de carregamento (hh:mm:ss)
-    - Tempo estimado (hh:mm)
-    - Temperatura
-    - Status do carregamento (carregando, pausado, finalizado, Conectado, desconectado, ocupado, disponível, etc)
+- `_ConectorConfiguradoChip` não deve ter borda e fundo azul claro, Devem ter uma cor neutra
+- A disposição dos carregadores na page `CarregadorPade()` deve ser com estilo grid, de modo que caiba até 4 carregadores por linha em casos de monitores bem largos
+    - Mínimo 1 Carregador por linha, máximo, 4 por linha, dependendo da largura disponível
+- Botão de deletar o carregador deve ir no canto superior esquerdo do widget de apresentação do carregador
+- O código de status do carregador deve ser simulado dentro da tela do carregador (visualmente falando):
+    - Disponivel, Desconectador, etc...
+```dart
+Align(
+alignment: .topCenter,
+child: Container(
+margin: .only(top: 10),
+color: Colors.green,
+width: 122,
+alignment: .center,
+child: Text("Disponível"),
+)
+/*_EstadoCarregadorChip(
+            estado: EstadoCarregador.disponivel,
+            ocupado: false,
+            corEstado: Colors.green,
+          ),*/
+), 
+```
