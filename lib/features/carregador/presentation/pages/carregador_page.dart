@@ -557,35 +557,60 @@ class _ListaCarregadores extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
+    return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         paddingHorizontal,
         0,
         paddingHorizontal,
         paddingBottom,
       ),
-      itemCount: carregadores.length,
-      itemBuilder: (context, index) {
-        final item = carregadores[index];
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1180),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              const espacamento = 18.0;
+              final colunas = _calcularColunasGridCarregadores(
+                constraints.maxWidth,
+              );
+              final larguraItem =
+                  (constraints.maxWidth - (colunas - 1) * espacamento) /
+                  colunas;
 
-        return Padding(
-          padding: EdgeInsets.only(top: index == 0 ? 0 : 18),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1180),
-              child: _CarregadorBotaoVisual(
-                item: item,
-                onPressed: () => onAbrirCarregador(item),
-                onRemover: onRemoverCarregador == null
-                    ? null
-                    : () => onRemoverCarregador!(item),
-              ),
-            ),
+              return Wrap(
+                spacing: espacamento,
+                runSpacing: espacamento,
+                children: <Widget>[
+                  for (final item in carregadores)
+                    SizedBox(
+                      width: larguraItem,
+                      child: _CarregadorBotaoVisual(
+                        item: item,
+                        onPressed: () => onAbrirCarregador(item),
+                        onRemover: onRemoverCarregador == null
+                            ? null
+                            : () => onRemoverCarregador!(item),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
-        );
-      },
+        ),
+      ),
     );
   }
+}
+
+int _calcularColunasGridCarregadores(double larguraDisponivel) {
+  const larguraMinimaCard = 280.0;
+  const espacamento = 18.0;
+
+  final colunas =
+      ((larguraDisponivel + espacamento) / (larguraMinimaCard + espacamento))
+          .floor();
+
+  return colunas.clamp(1, 4).toInt();
 }
 
 class _CarregadorBotaoVisual extends StatelessWidget {
@@ -623,57 +648,79 @@ class _CarregadorBotaoVisual extends StatelessWidget {
             ),
           ),
           clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            key: ValueKey<String>('carregador_botao_${configuracao.id}'),
-            onTap: onPressed,
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final compacto = constraints.maxWidth < 620;
-                  final visualizacao = _CarregadorVisualizacao(
-                    configuracao: configuracao,
-                    compacto: compacto,
-                    estadoVisual: _EstadoVisualCarregador(
-                      estado: estado,
-                      conectado: conectado,
-                      ocupado: ocupado,
-                      corEstado: corEstado,
-                      potenciaW: item.viewModel.potenciaW.value,
-                    ),
-                  );
-                  final detalhes = _CarregadorBotaoDetalhes(
-                    configuracao: configuracao,
-                    estado: estado,
-                    ocupado: ocupado,
-                    corEstado: corEstado,
-                    onRemover: onRemover,
-                  );
+          child: Stack(
+            children: <Widget>[
+              InkWell(
+                key: ValueKey<String>('carregador_botao_${configuracao.id}'),
+                onTap: onPressed,
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compacto = constraints.maxWidth < 620;
+                      final visualizacao = _CarregadorVisualizacao(
+                        configuracao: configuracao,
+                        compacto: compacto,
+                        estadoVisual: _EstadoVisualCarregador(
+                          estado: estado,
+                          conectado: conectado,
+                          ocupado: ocupado,
+                          corEstado: corEstado,
+                          potenciaW: item.viewModel.potenciaW.value,
+                        ),
+                      );
+                      final detalhes = _CarregadorBotaoDetalhes(
+                        estado: estado,
+                        ocupado: ocupado,
+                        corEstado: corEstado,
+                      );
 
-                  if (compacto) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        Center(child: visualizacao),
-                        const SizedBox(height: 16),
-                        detalhes,
-                      ],
-                    );
-                  }
+                      if (compacto) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            Center(child: visualizacao),
+                            const SizedBox(height: 16),
+                            detalhes,
+                          ],
+                        );
+                      }
 
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: <Widget>[
-                      visualizacao,
-                      const SizedBox(width: 22),
-                      Expanded(child: detalhes),
-                      const SizedBox(width: 12),
-                      Icon(Icons.chevron_right, color: cores.onSurfaceVariant),
-                    ],
-                  );
-                },
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: <Widget>[
+                          visualizacao,
+                          const SizedBox(width: 22),
+                          Expanded(child: detalhes),
+                          const SizedBox(width: 12),
+                          Icon(
+                            Icons.chevron_right,
+                            color: cores.onSurfaceVariant,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
               ),
-            ),
+              Positioned(
+                top: 6,
+                left: 6,
+                child: IconButton(
+                  key: ValueKey<String>(
+                    'carregador_excluir_${configuracao.id}',
+                  ),
+                  tooltip: 'Excluir carregador ${configuracao.id}',
+                  onPressed: onRemover,
+                  icon: Icon(
+                    Icons.delete_outline,
+                    color: onRemover == null
+                        ? cores.onSurface.withValues(alpha: 0.38)
+                        : cores.error,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -702,7 +749,11 @@ class _CarregadorVisualizacao extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          _ImagemCarregador(configuracao: configuracao, compacto: compacto),
+          _ImagemCarregador(
+            configuracao: configuracao,
+            compacto: compacto,
+            estadoVisual: estadoVisual,
+          ),
           _ConectoresConfigurados(
             carregadorId: configuracao.id,
             conectores: configuracao.conectores,
@@ -715,36 +766,27 @@ class _CarregadorVisualizacao extends StatelessWidget {
 }
 
 class _ImagemCarregador extends StatelessWidget {
-  const _ImagemCarregador({required this.configuracao, required this.compacto});
+  const _ImagemCarregador({
+    required this.configuracao,
+    required this.compacto,
+    required this.estadoVisual,
+  });
 
   final CarregadorConfigurado configuracao;
   final bool compacto;
+  final _EstadoVisualCarregador estadoVisual;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
-      children: [
-        Align(
-          alignment: .topCenter,
-          child: Container(
-            margin: .only(top: 10),
-            color: Colors.green,
-            width: 122,
-            alignment: .center,
-            child: Text("Disponível"),
-          )
-          /*_EstadoCarregadorChip(
-            estado: EstadoCarregador.disponivel,
-            ocupado: false,
-            corEstado: Colors.green,
-          ),*/
-        ),
+      children: <Widget>[
         Padding(
-          padding: .symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Image.asset(
             _assetCarregador(configuracao),
             fit: BoxFit.contain,
-            semanticLabel: 'Carregador ${configuracao.id}',
+            semanticLabel:
+                'Carregador ${configuracao.id}, ${estadoVisual.rotuloStatus}',
             errorBuilder: (context, error, stackTrace) => Center(
               child: Icon(
                 Icons.ev_station,
@@ -754,57 +796,92 @@ class _ImagemCarregador extends StatelessWidget {
             ),
           ),
         ),
+        Positioned(
+          top: 10,
+          left: 24,
+          right: 24,
+          child: _StatusVisualCarregador(
+            carregadorId: configuracao.id,
+            estadoVisual: estadoVisual,
+          ),
+        ),
       ],
+    );
+  }
+}
+
+class _StatusVisualCarregador extends StatelessWidget {
+  const _StatusVisualCarregador({
+    required this.carregadorId,
+    required this.estadoVisual,
+  });
+
+  final String carregadorId;
+  final _EstadoVisualCarregador estadoVisual;
+
+  @override
+  Widget build(BuildContext context) {
+    final tema = Theme.of(context);
+    final cor = _corStatusVisualCarregador(tema, estadoVisual);
+    final corTexto = _corTextoStatusVisualCarregador(cor);
+
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 122),
+        child: SizedBox(
+          key: ValueKey<String>('carregador_status_visual_$carregadorId'),
+          width: double.infinity,
+          height: 24,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: cor.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(2),
+            ),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  estadoVisual.rotuloStatus,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tema.textTheme.labelSmall?.copyWith(
+                    color: corTexto,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
 class _CarregadorBotaoDetalhes extends StatelessWidget {
   const _CarregadorBotaoDetalhes({
-    required this.configuracao,
     required this.estado,
     required this.ocupado,
     required this.corEstado,
-    required this.onRemover,
   });
 
-  final CarregadorConfigurado configuracao;
   final EstadoCarregador estado;
   final bool ocupado;
   final Color corEstado;
-  final VoidCallback? onRemover;
 
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
-    final cores = tema.colorScheme;
-
-    return Stack(
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            _EstadoCarregadorChip(
-              estado: estado,
-              ocupado: ocupado,
-              corEstado: corEstado,
-            ),
-            const SizedBox(width: 8),
-
-          ],
+        _EstadoCarregadorChip(
+          estado: estado,
+          ocupado: ocupado,
+          corEstado: corEstado,
         ),
-
-        IconButton(
-          key: ValueKey<String>('carregador_excluir_${configuracao.id}'),
-          tooltip: 'Excluir carregador ${configuracao.id}',
-          onPressed: onRemover,
-          icon: Icon(
-            Icons.delete_outline,
-            color: onRemover == null
-                ? cores.onSurface.withValues(alpha: 0.38)
-                : cores.error,
-          ),
-        ),
+        const SizedBox(width: 8),
       ],
     );
   }
@@ -876,22 +953,79 @@ class _ConectoresConfigurados extends StatelessWidget {
   Widget build(BuildContext context) {
     final totalConectores = conectores.length;
 
-    return Row(
-      mainAxisAlignment: .center,
-      spacing: 6,
-      children: <Widget>[
-        for (var indice = 0; indice < totalConectores; indice += 1)
-          _ConectorConfiguradoChip(
-            carregadorId: carregadorId,
-            conector: conectores[indice],
-            totalConectores: totalConectores,
-            indice: indice,
-            estadoVisual: estadoVisual,
-          ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final larguraDisponivel = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : _larguraMaximaConectoresConfigurados;
+        final larguraConectores = larguraDisponivel
+            .clamp(0.0, _larguraMaximaConectoresConfigurados)
+            .toDouble();
+
+        if (_temConectorCentral(totalConectores)) {
+          return SizedBox(
+            width: larguraConectores,
+            child: _ConectorConfiguradoChip(
+              carregadorId: carregadorId,
+              conector: conectores.single,
+              totalConectores: totalConectores,
+              indice: 0,
+              estadoVisual: estadoVisual,
+            ),
+          );
+        }
+
+        if (_temConectoresLaterais(totalConectores)) {
+          final larguraChip =
+              ((larguraConectores - _espacamentoConectoresConfigurados) / 2)
+                  .clamp(0.0, _larguraMaximaConectoresConfigurados)
+                  .toDouble();
+
+          return SizedBox(
+            width: larguraConectores,
+            child: Row(
+              mainAxisAlignment: .center,
+              spacing: _espacamentoConectoresConfigurados,
+              children: <Widget>[
+                for (var indice = 0; indice < totalConectores; indice += 1)
+                  SizedBox(
+                    width: larguraChip,
+                    child: _ConectorConfiguradoChip(
+                      carregadorId: carregadorId,
+                      conector: conectores[indice],
+                      totalConectores: totalConectores,
+                      indice: indice,
+                      estadoVisual: estadoVisual,
+                    ),
+                  ),
+              ],
+            ),
+          );
+        }
+
+        return Wrap(
+          alignment: WrapAlignment.center,
+          spacing: _espacamentoConectoresConfigurados,
+          runSpacing: _espacamentoConectoresConfigurados,
+          children: <Widget>[
+            for (var indice = 0; indice < totalConectores; indice += 1)
+              _ConectorConfiguradoChip(
+                carregadorId: carregadorId,
+                conector: conectores[indice],
+                totalConectores: totalConectores,
+                indice: indice,
+                estadoVisual: estadoVisual,
+              ),
+          ],
+        );
+      },
     );
   }
 }
+
+const _alturaConectorConfiguradoChip = 260.0;
+const _espacamentoConectoresConfigurados = 6.0;
+const _larguraMaximaConectoresConfigurados = 300.0;
 
 class _ConectorConfiguradoChip extends StatelessWidget {
   const _ConectorConfiguradoChip({
@@ -918,65 +1052,80 @@ class _ConectorConfiguradoChip extends StatelessWidget {
 
     if (_temConectorCentral(totalConectores)) {
       return SizedBox(
-        width: 300,
+        key: ValueKey<String>('conector_chip_${carregadorId}_${conector.id}'),
+        width: double.infinity,
+        height: _alturaConectorConfiguradoChip,
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: _fundoConectorCentral(cores),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: cores.primary, width: 3),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                SizedBox(
-                  width: 112,
-                  height: 112,
-                  child: Image.asset(
-                    _assetConector(conector.tipo),
-                    fit: BoxFit.contain,
-                    semanticLabel:
-                        '$rotuloPosicao do carregador $carregadorId: '
-                        '$rotuloTipo, $rotuloStatus',
-                    errorBuilder: (_, _, _) => Icon(
-                      Icons.cable,
-                      size: 46,
-                      color: cores.onSurfaceVariant,
+                Align(
+                  child: SizedBox(
+                    width: 82,
+                    height: 82,
+                    child: Image.asset(
+                      _assetConector(conector.tipo),
+                      fit: BoxFit.contain,
+                      semanticLabel:
+                          '$rotuloPosicao do carregador $carregadorId: '
+                          '$rotuloTipo, $rotuloStatus',
+                      errorBuilder: (_, _, _) => Icon(
+                        Icons.cable,
+                        size: 42,
+                        color: cores.onSurfaceVariant,
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
-                Text(
-                  'ID $carregadorId / ${conector.id}',
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: tema.textTheme.titleMedium?.copyWith(
-                    color: cores.onSurface,
-                    fontWeight: FontWeight.w500,
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 22,
+                  child: Text(
+                    'ID $carregadorId / ${conector.id}',
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: tema.textTheme.labelLarge?.copyWith(
+                      color: cores.onSurface,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  height: 32,
+                  child: Text(
+                    rotuloPosicao,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: tema.textTheme.titleLarge?.copyWith(
+                      color: cores.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  rotuloPosicao,
-                  textAlign: TextAlign.center,
-                  style: tema.textTheme.headlineSmall?.copyWith(
-                    color: cores.onSurface,
-                    fontWeight: FontWeight.w900,
+                SizedBox(
+                  height: 24,
+                  child: Text(
+                    estadoVisual.rotuloPotencia,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: tema.textTheme.titleMedium?.copyWith(
+                      color: cores.onSurface,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 14),
-                Text(
-                  estadoVisual.rotuloPotencia,
-                  textAlign: TextAlign.center,
-                  style: tema.textTheme.titleLarge?.copyWith(
-                    color: cores.onSurface,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 8),
                 _StatusConectorCentralChip(estadoVisual: estadoVisual),
               ],
             ),
@@ -987,70 +1136,80 @@ class _ConectorConfiguradoChip extends StatelessWidget {
 
     if (_temConectoresLaterais(totalConectores)) {
       return SizedBox(
-        height: 260,
+        key: ValueKey<String>('conector_chip_${carregadorId}_${conector.id}'),
+        width: double.infinity,
+        height: _alturaConectorConfiguradoChip,
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: _fundoConectorLateral(cores, indice),
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: _bordaConectorLateral(cores, indice),
-              width: 2,
-            ),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 22, 12, 14),
+            padding: const EdgeInsets.fromLTRB(10, 16, 10, 12),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                SizedBox(
-                  width: 74,
-                  height: 74,
-                  child: Image.asset(
-                    _assetConector(conector.tipo),
-                    fit: BoxFit.contain,
-                    semanticLabel:
-                        '$rotuloPosicao do carregador $carregadorId: '
-                        '$rotuloTipo, $rotuloStatus',
-                    errorBuilder: (_, _, _) => Icon(
-                      Icons.cable,
-                      size: 34,
-                      color: cores.onSurfaceVariant,
+                Align(
+                  child: SizedBox(
+                    width: 70,
+                    height: 70,
+                    child: Image.asset(
+                      _assetConector(conector.tipo),
+                      fit: BoxFit.contain,
+                      semanticLabel:
+                          '$rotuloPosicao do carregador $carregadorId: '
+                          '$rotuloTipo, $rotuloStatus',
+                      errorBuilder: (_, _, _) => Icon(
+                        Icons.cable,
+                        size: 34,
+                        color: cores.onSurfaceVariant,
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
-                Text(
-                  'ID $carregadorId / ${conector.id}',
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: tema.textTheme.labelLarge?.copyWith(
-                    color: cores.onSurface,
-                    fontWeight: FontWeight.w500,
+                const SizedBox(height: 14),
+                SizedBox(
+                  height: 34,
+                  child: Text(
+                    'ID $carregadorId / ${conector.id}',
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: tema.textTheme.labelMedium?.copyWith(
+                      color: cores.onSurface,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  rotuloPosicao,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: tema.textTheme.titleLarge?.copyWith(
-                    color: cores.onSurface,
-                    fontWeight: FontWeight.w900,
+                const SizedBox(height: 4),
+                SizedBox(
+                  height: 28,
+                  child: Text(
+                    rotuloPosicao,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: tema.textTheme.titleMedium?.copyWith(
+                      color: cores.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
                 const Spacer(),
-                Text(
-                  estadoVisual.rotuloPotencia,
-                  textAlign: TextAlign.center,
-                  style: tema.textTheme.titleMedium?.copyWith(
-                    color: cores.onSurface,
-                    fontWeight: FontWeight.w500,
+                SizedBox(
+                  height: 22,
+                  child: Text(
+                    estadoVisual.rotuloPotencia,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: tema.textTheme.titleSmall?.copyWith(
+                      color: cores.onSurface,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 _StatusConectorLateralChip(estadoVisual: estadoVisual),
               ],
             ),
@@ -1063,7 +1222,6 @@ class _ConectorConfiguradoChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: cores.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: cores.outlineVariant),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1109,7 +1267,7 @@ class _StatusConectorLateralChip extends StatelessWidget {
     final cor = _corStatusConectorCentral(estadoVisual);
 
     return SizedBox(
-      width: 118,
+      width: double.infinity,
       height: 34,
       child: DecoratedBox(
         decoration: BoxDecoration(
@@ -1143,19 +1301,29 @@ class _StatusConectorCentralChip extends StatelessWidget {
     final tema = Theme.of(context);
     final cor = _corStatusConectorCentral(estadoVisual);
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: cor.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(7),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 34, vertical: 8),
-        child: Text(
-          estadoVisual.rotuloStatus,
-          textAlign: TextAlign.center,
-          style: tema.textTheme.titleMedium?.copyWith(
-            color: tema.colorScheme.onSurface,
-            fontWeight: FontWeight.w500,
+    return Align(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 170),
+        child: SizedBox(
+          width: double.infinity,
+          height: 34,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: cor.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Center(
+              child: Text(
+                estadoVisual.rotuloStatus,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: tema.textTheme.labelLarge?.copyWith(
+                  color: tema.colorScheme.onSurface,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -1238,7 +1406,7 @@ String _assetConector(TipoConectorCarregador tipo) {
 }
 
 Color _fundoConectorCentral(ColorScheme cores) {
-  return Color.alphaBlend(cores.primary.withValues(alpha: 0.11), cores.surface);
+  return cores.surfaceContainerHighest;
 }
 
 Color _fundoConectorLateral(ColorScheme cores, int indice) {
@@ -1246,15 +1414,7 @@ Color _fundoConectorLateral(ColorScheme cores, int indice) {
     return _fundoConectorCentral(cores);
   }
 
-  return cores.surface;
-}
-
-Color _bordaConectorLateral(ColorScheme cores, int indice) {
-  if (indice == 0) {
-    return cores.primary;
-  }
-
-  return cores.outlineVariant;
+  return cores.surfaceContainer;
 }
 
 Color _corStatusConectorCentral(_EstadoVisualCarregador estadoVisual) {
@@ -1268,6 +1428,32 @@ Color _corStatusConectorCentral(_EstadoVisualCarregador estadoVisual) {
   }
 
   return estadoVisual.corEstado;
+}
+
+Color _corStatusVisualCarregador(
+  ThemeData tema,
+  _EstadoVisualCarregador estadoVisual,
+) {
+  if (estadoVisual.ocupado) {
+    return estadoVisual.corEstado;
+  }
+
+  if (!estadoVisual.conectado &&
+      estadoVisual.estado != EstadoCarregador.conectando) {
+    return tema.colorScheme.outline;
+  }
+
+  return switch (estadoVisual.estado) {
+    EstadoCarregador.disponivel => Colors.green.shade600,
+    EstadoCarregador.carregando => Colors.green.shade700,
+    EstadoCarregador.pausado => Colors.amber.shade800,
+    EstadoCarregador.falha => tema.colorScheme.error,
+    _ => estadoVisual.corEstado,
+  };
+}
+
+Color _corTextoStatusVisualCarregador(Color corFundo) {
+  return corFundo.computeLuminance() > 0.48 ? Colors.black87 : Colors.white;
 }
 
 bool _temConectorCentral(int totalConectores) {

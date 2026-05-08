@@ -59,6 +59,47 @@ void main() {
       expect(repositoriosOperacionais.keys, contains('CP-1'));
     });
 
+    testWidgets('exibe status visual do carregador com estado real', (
+      tester,
+    ) async {
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[_criarCarregador('CP-1')],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      final carregadorViewModel = viewModel.viewModelDoCarregador('CP-1')!;
+      carregadorViewModel.conectado.value = true;
+      carregadorViewModel.estado.value = EstadoCarregador.carregando;
+
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      final statusVisual = find.byKey(
+        const ValueKey<String>('carregador_status_visual_CP-1'),
+      );
+
+      expect(statusVisual, findsOneWidget);
+      expect(
+        find.descendant(of: statusVisual, matching: find.text('Carregando')),
+        findsOneWidget,
+      );
+
+      carregadorViewModel.ocupado.value = true;
+      await tester.pumpAndSettle();
+
+      expect(
+        find.descendant(of: statusVisual, matching: find.text('Processando')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('exclui carregador da lista', (tester) async {
       final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
         carregadores: <CarregadorConfigurado>[
@@ -84,6 +125,13 @@ void main() {
         find.byKey(const ValueKey<String>('carregador_excluir_CP-1')),
       );
       await tester.pumpAndSettle();
+
+      expect(find.text('Excluir carregador'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('carregador_dialogo_CP-1')),
+        findsNothing,
+      );
+
       await tester.tap(find.byKey(const Key('carregador_confirmar_exclusao')));
       await tester.pumpAndSettle();
 
@@ -98,6 +146,7 @@ void main() {
     testWidgets('exibe conectores esquerdo e direito', (tester) async {
       final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
         carregadores: <CarregadorConfigurado>[
+          _criarCarregador('CP-1C'),
           _criarCarregadorComDoisConectores('CP-2C'),
         ],
       );
@@ -117,6 +166,16 @@ void main() {
       expect(find.text('Direito'), findsOneWidget);
       expect(find.text('ID CP-2C / 1'), findsOneWidget);
       expect(find.text('ID CP-2C / 2'), findsOneWidget);
+      _expectConectorDecoracao(
+        tester,
+        'conector_chip_CP-2C_1',
+        TemaApp.temaClaro().colorScheme.surfaceContainerHighest,
+      );
+      _expectConectorDecoracao(
+        tester,
+        'conector_chip_CP-2C_2',
+        TemaApp.temaClaro().colorScheme.surfaceContainer,
+      );
 
       final posicaoEsquerdo = tester.getTopLeft(find.text('Esquerdo'));
       final posicaoDireito = tester.getTopLeft(find.text('Direito'));
@@ -148,6 +207,11 @@ void main() {
       expect(find.text('Conector Central'), findsOneWidget);
       expect(find.text('ID CP-1C / 1'), findsOneWidget);
       expect(find.text('7.4 kW'), findsOneWidget);
+      _expectConectorDecoracao(
+        tester,
+        'conector_chip_CP-1C_1',
+        TemaApp.temaClaro().colorScheme.surfaceContainerHighest,
+      );
     });
 
     testWidgets('nao gera overflow visual em largura compacta', (tester) async {
@@ -160,6 +224,7 @@ void main() {
 
       final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
         carregadores: <CarregadorConfigurado>[
+          _criarCarregador('CP-1C'),
           _criarCarregadorComDoisConectores('CP-2C'),
         ],
       );
@@ -176,8 +241,95 @@ void main() {
       await _pumpCarregadoresPage(tester, viewModel);
 
       expect(tester.takeException(), isNull);
+      expect(find.text('Conector Central'), findsOneWidget);
       expect(find.text('Esquerdo'), findsOneWidget);
       expect(find.text('Direito'), findsOneWidget);
+    });
+
+    testWidgets('mantem chips de conectores com altura uniforme', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[
+          _criarCarregador('CP-1C'),
+          _criarCarregadorComDoisConectores('CP-2C'),
+        ],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      final alturaCentral = tester
+          .getSize(find.byKey(const ValueKey<String>('conector_chip_CP-1C_1')))
+          .height;
+      final alturaEsquerdo = tester
+          .getSize(find.byKey(const ValueKey<String>('conector_chip_CP-2C_1')))
+          .height;
+      final alturaDireito = tester
+          .getSize(find.byKey(const ValueKey<String>('conector_chip_CP-2C_2')))
+          .height;
+
+      expect(tester.takeException(), isNull);
+      expect(alturaCentral, moreOrLessEquals(alturaEsquerdo, epsilon: 0.1));
+      expect(alturaCentral, moreOrLessEquals(alturaDireito, epsilon: 0.1));
+    });
+
+    testWidgets('exibe ate 4 carregadores na mesma linha em largura ampla', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1600, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: List<CarregadorConfigurado>.generate(
+          5,
+          (index) => _criarCarregador('CP-${index + 1}'),
+        ),
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      final posicoes = <Offset>[
+        for (var indice = 1; indice <= 5; indice += 1)
+          tester.getTopLeft(
+            find.byKey(ValueKey<String>('carregador_botao_CP-$indice')),
+          ),
+      ];
+
+      for (var indice = 1; indice < 4; indice += 1) {
+        expect((posicoes[indice].dy - posicoes.first.dy).abs(), lessThan(1));
+        expect(posicoes[indice - 1].dx, lessThan(posicoes[indice].dx));
+      }
+      expect(posicoes.last.dy, greaterThan(posicoes.first.dy));
+      expect(posicoes.last.dx, posicoes.first.dx);
     });
 
     testWidgets('abre painel de manipulacao do carregador', (tester) async {
@@ -225,6 +377,27 @@ Future<void> _pumpCarregadoresPage(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+void _expectConectorDecoracao(
+  WidgetTester tester,
+  String key,
+  Color corFundoEsperada,
+) {
+  final decoracao =
+      tester
+              .widgetList<DecoratedBox>(
+                find.descendant(
+                  of: find.byKey(ValueKey<String>(key)),
+                  matching: find.byType(DecoratedBox),
+                ),
+              )
+              .first
+              .decoration
+          as BoxDecoration;
+
+  expect(decoracao.color, corFundoEsperada);
+  expect(decoracao.border, isNull);
 }
 
 CarregadoresPageViewModel _criarViewModel(
