@@ -52,7 +52,7 @@ void main() {
       await tester.tap(find.byKey(const Key('adicionar_carregador_confirmar')));
       await tester.pumpAndSettle();
 
-      expect(find.text('CP-1'), findsOneWidget);
+      expect(find.text('ID CP-1 / 1'), findsOneWidget);
       expect(viewModel.idsConfigurados, <String>['CP-1']);
       expect(repositorio.salvamentos, hasLength(1));
       expect(repositorio.salvamentos.single.single.id, 'CP-1');
@@ -87,12 +87,97 @@ void main() {
       await tester.tap(find.byKey(const Key('carregador_confirmar_exclusao')));
       await tester.pumpAndSettle();
 
-      expect(find.text('CP-1'), findsNothing);
-      expect(find.text('CP-2'), findsOneWidget);
+      expect(find.text('ID CP-1 / 1'), findsNothing);
+      expect(find.text('ID CP-2 / 1'), findsOneWidget);
       expect(viewModel.idsConfigurados, <String>['CP-2']);
       expect(repositorio.salvamentos, hasLength(1));
       expect(repositorio.salvamentos.single.single.id, 'CP-2');
       expect(repositorioCp1.desconexoes, 1);
+    });
+
+    testWidgets('exibe conectores esquerdo e direito', (tester) async {
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[
+          _criarCarregadorComDoisConectores('CP-2C'),
+        ],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      expect(find.text('Esquerdo'), findsOneWidget);
+      expect(find.text('Direito'), findsOneWidget);
+      expect(find.text('ID CP-2C / 1'), findsOneWidget);
+      expect(find.text('ID CP-2C / 2'), findsOneWidget);
+
+      final posicaoEsquerdo = tester.getTopLeft(find.text('Esquerdo'));
+      final posicaoDireito = tester.getTopLeft(find.text('Direito'));
+      expect(posicaoEsquerdo.dx, lessThan(posicaoDireito.dx));
+      expect(
+        (posicaoEsquerdo.dy - posicaoDireito.dy).abs(),
+        lessThanOrEqualTo(1),
+      );
+    });
+
+    testWidgets('exibe conector central para carregador com 1 conector', (
+      tester,
+    ) async {
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[_criarCarregador('CP-1C')],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      expect(find.text('Conector Central'), findsOneWidget);
+      expect(find.text('ID CP-1C / 1'), findsOneWidget);
+      expect(find.text('7.4 kW'), findsOneWidget);
+    });
+
+    testWidgets('nao gera overflow visual em largura compacta', (tester) async {
+      tester.view.physicalSize = const Size(320, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[
+          _criarCarregadorComDoisConectores('CP-2C'),
+        ],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Esquerdo'), findsOneWidget);
+      expect(find.text('Direito'), findsOneWidget);
     });
 
     testWidgets('abre painel de manipulacao do carregador', (tester) async {
@@ -170,6 +255,16 @@ CarregadorConfigurado _criarCarregador(String id) {
     id: id,
     conectores: <ConectorCarregadorConfigurado>[
       ConectorCarregadorConfigurado(id: 1, tipo: TipoConectorCarregador.ccs2),
+    ],
+  );
+}
+
+CarregadorConfigurado _criarCarregadorComDoisConectores(String id) {
+  return CarregadorConfigurado(
+    id: id,
+    conectores: <ConectorCarregadorConfigurado>[
+      ConectorCarregadorConfigurado(id: 1, tipo: TipoConectorCarregador.ccs2),
+      ConectorCarregadorConfigurado(id: 2, tipo: TipoConectorCarregador.gbt),
     ],
   );
 }
