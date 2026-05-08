@@ -1,3 +1,98 @@
+enum TipoConectorCarregador {
+  ccs2('CCS2'),
+  mennekesType2('MENNEKES_TYPE_2'),
+  gbt('GBT');
+
+  const TipoConectorCarregador(this.valor);
+
+  final String valor;
+
+  static TipoConectorCarregador fromJson(Object? json) {
+    final valor = _textoJsonNaoVazio(json, 'tipo');
+
+    for (final tipo in TipoConectorCarregador.values) {
+      if (tipo.valor == valor) {
+        return tipo;
+      }
+    }
+
+    throw FormatException('Tipo de conector desconhecido: $valor');
+  }
+}
+
+final class ConectorCarregadorConfigurado {
+  ConectorCarregadorConfigurado({required this.id, required this.tipo}) {
+    if (id < 1) {
+      throw ArgumentError.value(id, 'id', 'Informe um id de conector valido');
+    }
+  }
+
+  factory ConectorCarregadorConfigurado.fromJson(Object? json) {
+    final mapa = _mapaJson(json, 'ConectorCarregadorConfigurado');
+
+    return ConectorCarregadorConfigurado(
+      id: _inteiroJsonObrigatorio(mapa, 'id'),
+      tipo: TipoConectorCarregador.fromJson(mapa['tipo']),
+    );
+  }
+
+  final int id;
+  final TipoConectorCarregador tipo;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{'id': id, 'tipo': tipo.valor};
+  }
+}
+
+final class CarregadorConfigurado {
+  CarregadorConfigurado({
+    required this.id,
+    required List<ConectorCarregadorConfigurado> conectores,
+  }) : conectores = List<ConectorCarregadorConfigurado>.unmodifiable(
+         conectores,
+       ) {
+    if (id.trim().isEmpty) {
+      throw ArgumentError.value(id, 'id', 'Informe o id do carregador');
+    }
+
+    if (conectores.isEmpty || conectores.length > 2) {
+      throw ArgumentError.value(
+        conectores.length,
+        'conectores',
+        'Configure 1 ou 2 conectores',
+      );
+    }
+  }
+
+  factory CarregadorConfigurado.fromJson(Object? json) {
+    final mapa = _mapaJson(json, 'CarregadorConfigurado');
+    final conectoresJson = mapa['conectores'];
+
+    if (conectoresJson is! List) {
+      throw const FormatException('Campo conectores deve ser uma lista');
+    }
+
+    return CarregadorConfigurado(
+      id: _textoJsonObrigatorio(mapa, 'id'),
+      conectores: conectoresJson
+          .map(ConectorCarregadorConfigurado.fromJson)
+          .toList(growable: false),
+    );
+  }
+
+  final String id;
+  final List<ConectorCarregadorConfigurado> conectores;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'id': id,
+      'conectores': conectores
+          .map((conector) => conector.toJson())
+          .toList(growable: false),
+    };
+  }
+}
+
 enum StatusConectorOcpp {
   available('Available'),
   preparing('Preparing'),
@@ -190,6 +285,46 @@ final class ValorMedidoOcpp {
       'unit': unidade?.valor,
     });
   }
+}
+
+Map<String, dynamic> _mapaJson(Object? json, String modelo) {
+  if (json is! Map) {
+    throw FormatException('$modelo deve ser um objeto JSON');
+  }
+
+  return <String, dynamic>{
+    for (final entrada in json.entries)
+      _chaveJson(entrada.key, modelo): entrada.value,
+  };
+}
+
+String _chaveJson(Object? chave, String modelo) {
+  if (chave is String) {
+    return chave;
+  }
+
+  throw FormatException('$modelo deve conter apenas chaves texto');
+}
+
+String _textoJsonObrigatorio(Map<String, dynamic> json, String campo) {
+  return _textoJsonNaoVazio(json[campo], campo);
+}
+
+String _textoJsonNaoVazio(Object? valor, String campo) {
+  if (valor is String && valor.trim().isNotEmpty) {
+    return valor;
+  }
+
+  throw FormatException('Campo $campo deve ser texto nao vazio');
+}
+
+int _inteiroJsonObrigatorio(Map<String, dynamic> json, String campo) {
+  final valor = json[campo];
+  if (valor is int) {
+    return valor;
+  }
+
+  throw FormatException('Campo $campo deve ser inteiro');
 }
 
 Map<String, dynamic> removerNulos(Map<String, dynamic> payload) {

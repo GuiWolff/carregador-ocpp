@@ -1,8 +1,13 @@
+export 'data/repositories/configuracao_carregador_repository_local.dart';
 export 'data/repositories/carregador_repository_websocket.dart';
 export 'domain/models/mensagem_ocpp.dart';
 export 'domain/models/modelos_carregador.dart';
+export 'domain/repositories/configuracao_carregador_repository.dart';
 export 'domain/repositories/carregador_repository.dart';
+export 'presentation/pages/carregador_page.dart';
+export 'presentation/viewmodels/carregadores_page_view_model.dart';
 export 'presentation/viewmodels/carregador_widget_view_model.dart';
+export 'presentation/widgets/adicionar_carregador_dialog.dart';
 export 'presentation/widgets/carregador_widget.dart';
 export 'services/carregador_ocpp_client.dart';
 export 'services/carregador_websocket_service.dart';

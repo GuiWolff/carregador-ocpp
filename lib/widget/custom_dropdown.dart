@@ -10,6 +10,7 @@ class CustomDropdown<T> extends StatelessWidget {
     required this.opcoes,
     required this.rotuloOpcao,
     required this.onChanged,
+    this.itemBuilder,
     this.habilitado = true,
   });
 
@@ -20,6 +21,7 @@ class CustomDropdown<T> extends StatelessWidget {
   final List<T> opcoes;
   final String Function(T opcao) rotuloOpcao;
   final ValueChanged<T?> onChanged;
+  final Widget Function(T opcao)? itemBuilder;
   final bool habilitado;
 
   @override
@@ -50,14 +52,16 @@ class CustomDropdown<T> extends StatelessWidget {
           .map(
             (opcao) => DropdownMenuItem<T>(
               value: opcao,
-              child: Text(
-                rotuloOpcao(opcao),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: tema.textTheme.bodyMedium?.copyWith(
-                  color: cores.onSurface,
-                ),
-              ),
+              child:
+                  itemBuilder?.call(opcao) ??
+                  Text(
+                    rotuloOpcao(opcao),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: tema.textTheme.bodyMedium?.copyWith(
+                      color: cores.onSurface,
+                    ),
+                  ),
             ),
           )
           .toList(growable: false),

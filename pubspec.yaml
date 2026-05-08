@@ -36,6 +36,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   web_socket_channel: ^3.0.3
   shared_preferences: ^2.5.5
+  flutter_svg: ^2.2.4
 
 dev_dependencies:
   flutter_test:
@@ -58,6 +59,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/carregador/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
