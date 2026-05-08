@@ -1410,11 +1410,7 @@ Color _fundoConectorCentral(ColorScheme cores) {
 }
 
 Color _fundoConectorLateral(ColorScheme cores, int indice) {
-  if (indice == 0) {
-    return _fundoConectorCentral(cores);
-  }
-
-  return cores.surfaceContainer;
+  return _fundoConectorCentral(cores);
 }
 
 Color _corStatusConectorCentral(_EstadoVisualCarregador estadoVisual) {
