@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+  <meta id="meta-theme-color" name="theme-color" content="#439be2">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="simulador_ocpp">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>simulador_ocpp</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Fontes e CSS do splash -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" type="text/css" href="splash/style.css" />
+</head>
+<body>
+  <!-- Splash -->
+  <div id="splash">
+    <div class="splash-content">
+      <img class="logo" alt="Logo" src="splash/img/logo_light.webp" />
+      <p class="loading">
+        <span class="dots dots-bg" aria-hidden="true"></span>
+        <span class="label">Carregando</span>
+        <span class="dots dots-fg" aria-hidden="true"></span>
+      </p>
+      <div id="progress-wrap" class="progress-wrap">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <div id="progress-text" class="loading">0%</div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const meta = document.getElementById('meta-theme-color');
+      const logo = document.querySelector('.logo');
+      const bar = document.getElementById('progress-bar');
+      const txt = document.getElementById('progress-text');
+      const splash = document.getElementById('splash');
+      const colorScheme = window.matchMedia('(prefers-color-scheme: dark)');
+
+      function setProgress(value) {
+        const pct = Math.max(0, Math.min(100, Math.round(value)));
+        if (bar) bar.style.width = pct + '%';
+        if (txt) txt.textContent = pct + '%';
+      }
+
+      function applyTheme() {
+        const styles = getComputedStyle(document.documentElement);
+        const brand = (styles.getPropertyValue('--brand') || '#439be2').trim();
+        if (meta) meta.setAttribute('content', brand);
+        if (logo) {
+          logo.src = colorScheme.matches
+            ? 'splash/img/logo_dark.webp'
+            : 'splash/img/logo_light.webp';
+        }
+      }
+
+      let visualPct = 0;
+      let finished = false;
+
+      function tick() {
+        if (finished) return;
+        visualPct += (95 - visualPct) * 0.035;
+        setProgress(visualPct);
+        requestAnimationFrame(tick);
+      }
+
+      function finishSplash() {
+        if (finished) return;
+        finished = true;
+        setProgress(100);
+        if (splash) {
+          splash.classList.add('fade-out');
+          setTimeout(() => splash.remove(), 500);
+        }
+        window.removeEventListener('flutter-first-frame', finishSplash);
+      }
+
+      applyTheme();
+      if (colorScheme.addEventListener) {
+        colorScheme.addEventListener('change', applyTheme);
+      } else if (colorScheme.addListener) {
+        colorScheme.addListener(applyTheme);
+      }
+
+      requestAnimationFrame(tick);
+      window.addEventListener('flutter-first-frame', finishSplash, { once: true });
+      setTimeout(finishSplash, 12000);
+    })();
+  </script>
+
+  <!--
+    You can customize the "flutter_bootstrap.js" script.
+    This is useful to provide a custom configuration to the Flutter loader
+    or to give the user feedback during the initialization process.
+
+    For more details:
+    * https://docs.flutter.dev/platform-integration/web/initialization
+  -->
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

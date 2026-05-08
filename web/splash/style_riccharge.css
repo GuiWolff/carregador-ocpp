@@ -1,0 +1,107 @@
+:root {
+    /* Paleta Light */
+    --bg: #F0F2F5;      /* backgroundPrimario (claro) */
+    --fg: #942525;      /* texto no splash */
+    --brand: #e24343;   /* primária */
+    --brand-2: #e24343; /* destaque */
+
+    --progress-w: 320px;
+    --progress-h: 10px;
+    --progress-radius: 999px;
+    --track: rgba(148, 37, 37, 0.18); /* trilho sutil na primária */
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+}
+
+#splash {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    transition: opacity 0.5s ease-out;
+}
+#splash.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.splash-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    /* Espaçamento vertical controlado aqui */
+    gap: clamp(8px, 1.6vh, 14px);
+}
+
+/* Logo responsivo com largura máx. 320px */
+.splash-content .logo {
+    display: block;
+    width: 100%;
+    max-width: 320px;
+    height: auto;
+}
+
+.loading {
+    /* sem margem extra: o gap do container cuida do espaçamento */
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: .4px;
+    color: var(--fg);
+    display: inline-flex;
+    align-items: baseline;
+    gap: .25ch;
+}
+
+.loading .label { position: relative; z-index: 1; }
+
+.dots { display: inline-block; width: 2.5ch; text-align: left; line-height: 1; position: relative; }
+.dots::after { content: ""; animation: dots 1.8s infinite; color: inherit; }
+.dots-bg { color: var(--bg); }
+.dots-fg { color: var(--fg); }
+
+@keyframes dots {
+    0% { content: ""; }
+    33% { content: "."; }
+    66% { content: ".."; }
+    100% { content: "..."; }
+}
+
+.progress-wrap {
+    width: var(--progress-w);
+    height: var(--progress-h);
+    border-radius: var(--progress-radius);
+    background: var(--track);
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--brand) 0%, var(--brand-2) 100%);
+    transition: width .2s ease;
+}
+
+/* Dark: mapeado ao backgroundPrimario escuro do Flutter */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #332e2e;    /* backgroundPrimario (dark) */
+        --fg: #ffffff;    /* texto branco */
+        --brand: #942525; /* mantém identidade */
+        --brand-2: #5492d6;
+        --progress-w: min(300px, 80vw);
+        --track: rgba(255, 255, 255, 0.18);
+    }
+}
