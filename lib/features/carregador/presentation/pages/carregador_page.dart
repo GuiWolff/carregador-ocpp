@@ -658,21 +658,27 @@ class _CarregadorBotaoVisual extends StatelessWidget {
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final compacto = constraints.maxWidth < 620;
+                      final estadoVisual = _EstadoVisualCarregador(
+                        estado: estado,
+                        conectado: conectado,
+                        ocupado: ocupado,
+                        corEstado: corEstado,
+                        potenciaW: item.viewModel.potenciaW.value,
+                        energiaConsumidaKwh: item.viewModel.energiaFornecidaKwh,
+                        socPercentual: item.viewModel.soc.value,
+                        tempoCarregamento:
+                            item.viewModel.tempoCarregamento.value,
+                        tempoEstimado: item.viewModel.tempoRestante,
+                        temperaturaC: item.viewModel.temperaturaC.value,
+                      );
                       final visualizacao = _CarregadorVisualizacao(
                         configuracao: configuracao,
                         compacto: compacto,
-                        estadoVisual: _EstadoVisualCarregador(
-                          estado: estado,
-                          conectado: conectado,
-                          ocupado: ocupado,
-                          corEstado: corEstado,
-                          potenciaW: item.viewModel.potenciaW.value,
-                        ),
+                        estadoVisual: estadoVisual,
                       );
                       final detalhes = _CarregadorBotaoDetalhes(
-                        estado: estado,
-                        ocupado: ocupado,
-                        corEstado: corEstado,
+                        carregadorId: configuracao.id,
+                        estadoVisual: estadoVisual,
                       );
 
                       if (compacto) {
@@ -746,6 +752,7 @@ class _CarregadorVisualizacao extends StatelessWidget {
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: larguraConectores),
       child: Column(
+        spacing: 8,
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
@@ -780,6 +787,18 @@ class _ImagemCarregador extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: <Widget>[
+
+        Align(
+          alignment: .topCenter,
+          child: Padding(
+            padding: .only(top: 12),
+            child: _DisplayCarregador(
+              key: ValueKey<String>('carregador_display_A'),
+              estadoVisual: estadoVisual,
+            ),
+          ),
+        ),
+
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Image.asset(
@@ -796,10 +815,13 @@ class _ImagemCarregador extends StatelessWidget {
             ),
           ),
         ),
+
+
+
         Positioned(
-          top: 10,
-          left: 24,
-          right: 24,
+          bottom: 10,
+          left: 0,
+          right: 0,
           child: _StatusVisualCarregador(
             carregadorId: configuracao.id,
             estadoVisual: estadoVisual,
@@ -862,26 +884,31 @@ class _StatusVisualCarregador extends StatelessWidget {
 
 class _CarregadorBotaoDetalhes extends StatelessWidget {
   const _CarregadorBotaoDetalhes({
-    required this.estado,
-    required this.ocupado,
-    required this.corEstado,
+    required this.carregadorId,
+    required this.estadoVisual,
   });
 
-  final EstadoCarregador estado;
-  final bool ocupado;
-  final Color corEstado;
+  final String carregadorId;
+  final _EstadoVisualCarregador estadoVisual;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _EstadoCarregadorChip(
-          estado: estado,
-          ocupado: ocupado,
-          corEstado: corEstado,
+       /* Align(
+          alignment: Alignment.centerLeft,
+          child: _EstadoCarregadorChip(
+            estado: estadoVisual.estado,
+            ocupado: estadoVisual.ocupado,
+            corEstado: estadoVisual.corEstado,
+          ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(height: 12),
+        _DisplayCarregador(
+          key: ValueKey<String>('carregador_display_$carregadorId'),
+          estadoVisual: estadoVisual,
+        ),*/
       ],
     );
   }
@@ -934,6 +961,142 @@ class _EstadoCarregadorChip extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DisplayCarregador extends StatelessWidget {
+  const _DisplayCarregador({super.key, required this.estadoVisual});
+
+  final _EstadoVisualCarregador estadoVisual;
+
+  @override
+  Widget build(BuildContext context) {
+    final tema = Theme.of(context);
+    final cores = tema.colorScheme;
+    final itens = <_DisplayCarregadorItem>[
+      _DisplayCarregadorItem(
+        icone: Icons.bolt,
+        rotulo: 'Potencia atual',
+        valor: estadoVisual.rotuloPotenciaW,
+      ),
+      _DisplayCarregadorItem(
+        icone: Icons.speed,
+        rotulo: 'Energia consumida',
+        valor: estadoVisual.rotuloEnergiaConsumida,
+      ),
+      _DisplayCarregadorItem(
+        icone: Icons.battery_5_bar,
+        rotulo: 'SoC bateria',
+        valor: estadoVisual.rotuloSoc,
+      ),
+      _DisplayCarregadorItem(
+        icone: Icons.timer_outlined,
+        rotulo: 'Tempo carregamento',
+        valor: estadoVisual.rotuloTempoCarregamento,
+      ),
+      _DisplayCarregadorItem(
+        icone: Icons.schedule,
+        rotulo: 'Tempo estimado',
+        valor: estadoVisual.rotuloTempoEstimado,
+      ),
+      _DisplayCarregadorItem(
+        icone: Icons.thermostat,
+        rotulo: 'Temperatura',
+        valor: estadoVisual.rotuloTemperatura,
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24, top: 20, left: 20),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final duasColunas = constraints.maxWidth >= 330;
+          final larguraItem = duasColunas
+              ? (constraints.maxWidth - 10) / 2
+              : constraints.maxWidth;
+
+          return Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: <Widget>[
+              for (final item in itens)
+                SizedBox(
+                  width: larguraItem,
+                  child: _DisplayCarregadorCampo(
+                    item: item,
+                    corIcone: cores.primary,
+                    estiloRotulo: tema.textTheme.labelSmall?.copyWith(
+                      color: cores.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    estiloValor: tema.textTheme.labelLarge?.copyWith(
+                      color: cores.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DisplayCarregadorItem {
+  const _DisplayCarregadorItem({
+    required this.icone,
+    required this.rotulo,
+    required this.valor,
+  });
+
+  final IconData icone;
+  final String rotulo;
+  final String valor;
+}
+
+class _DisplayCarregadorCampo extends StatelessWidget {
+  const _DisplayCarregadorCampo({
+    required this.item,
+    required this.corIcone,
+    required this.estiloRotulo,
+    required this.estiloValor,
+  });
+
+  final _DisplayCarregadorItem item;
+  final Color corIcone;
+  final TextStyle? estiloRotulo;
+  final TextStyle? estiloValor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Icon(item.icone, size: 17, color: corIcone),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                item.rotulo,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: estiloRotulo,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                item.valor,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: estiloValor,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1338,6 +1501,11 @@ class _EstadoVisualCarregador {
     required this.ocupado,
     required this.corEstado,
     required this.potenciaW,
+    required this.energiaConsumidaKwh,
+    required this.socPercentual,
+    required this.tempoCarregamento,
+    required this.tempoEstimado,
+    required this.temperaturaC,
   });
 
   final EstadoCarregador estado;
@@ -1345,6 +1513,11 @@ class _EstadoVisualCarregador {
   final bool ocupado;
   final Color corEstado;
   final double potenciaW;
+  final double energiaConsumidaKwh;
+  final double socPercentual;
+  final Duration tempoCarregamento;
+  final Duration? tempoEstimado;
+  final double temperaturaC;
 
   String get rotuloStatus {
     if (ocupado) {
@@ -1364,6 +1537,55 @@ class _EstadoVisualCarregador {
 
     return '${potenciaKw.toStringAsFixed(casasDecimais)} kW';
   }
+
+  String get rotuloPotenciaW {
+    return '${potenciaW.round()} W';
+  }
+
+  String get rotuloEnergiaConsumida {
+    return '${energiaConsumidaKwh.toStringAsFixed(2)} kWh';
+  }
+
+  String get rotuloSoc {
+    return '${socPercentual.toStringAsFixed(1)}%';
+  }
+
+  String get rotuloTempoCarregamento {
+    return _formatarDuracaoHhMmSs(tempoCarregamento);
+  }
+
+  String get rotuloTempoEstimado {
+    return _formatarDuracaoHhMm(tempoEstimado);
+  }
+
+  String get rotuloTemperatura {
+    return '${temperaturaC.toStringAsFixed(1)} C';
+  }
+}
+
+String _formatarDuracaoHhMmSs(Duration duracao) {
+  final segundosTotais = duracao.inSeconds < 0 ? 0 : duracao.inSeconds;
+  final horas = segundosTotais ~/ Duration.secondsPerHour;
+  final minutos =
+      (segundosTotais % Duration.secondsPerHour) ~/ Duration.secondsPerMinute;
+  final segundos = segundosTotais % Duration.secondsPerMinute;
+
+  return '${horas.toString().padLeft(2, '0')}:'
+      '${minutos.toString().padLeft(2, '0')}:'
+      '${segundos.toString().padLeft(2, '0')}';
+}
+
+String _formatarDuracaoHhMm(Duration? duracao) {
+  if (duracao == null) {
+    return '--:--';
+  }
+
+  final minutosTotais = duracao.inMinutes < 0 ? 0 : duracao.inMinutes;
+  final horas = minutosTotais ~/ Duration.minutesPerHour;
+  final minutos = minutosTotais % Duration.minutesPerHour;
+
+  return '${horas.toString().padLeft(2, '0')}:'
+      '${minutos.toString().padLeft(2, '0')}';
 }
 
 String _rotuloTotal(int total) {
@@ -1390,10 +1612,10 @@ String _formatarSubtitulo(CarregadorConfigurado configuracao) {
 
 String _assetCarregador(CarregadorConfigurado configuracao) {
   if (configuracao.conectores.length == 1) {
-    return 'assets/carregador/carregador_1_conector.png';
+    return 'assets/carregador/carregador.png';
   }
 
-  return 'assets/carregador/carregador_2_conectores.png';
+  return 'assets/carregador/carregador.png';
 }
 
 String _assetConector(TipoConectorCarregador tipo) {

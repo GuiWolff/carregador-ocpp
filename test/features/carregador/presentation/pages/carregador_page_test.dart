@@ -92,10 +92,79 @@ void main() {
       );
 
       carregadorViewModel.ocupado.value = true;
-      await tester.pumpAndSettle();
+      await tester.pump();
 
       expect(
         find.descendant(of: statusVisual, matching: find.text('Processando')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('exibe display operacional nos cards da lista', (tester) async {
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[_criarCarregador('CP-1')],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      final carregadorViewModel = viewModel.viewModelDoCarregador('CP-1')!;
+      carregadorViewModel.conectado.value = true;
+      carregadorViewModel.estado.value = EstadoCarregador.carregando;
+      carregadorViewModel.potenciaW.value = 11000;
+      carregadorViewModel.medidorInicioTransacaoWh.value = 1200;
+      carregadorViewModel.medidorWh.value = 5000;
+      carregadorViewModel.soc.value = 50;
+      carregadorViewModel.temperaturaC.value = 36.5;
+      carregadorViewModel.tempoCarregamento.value = const Duration(
+        hours: 1,
+        minutes: 2,
+        seconds: 3,
+      );
+
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      final display = find.byKey(
+        const ValueKey<String>('carregador_display_CP-1'),
+      );
+
+      expect(display, findsOneWidget);
+      expect(
+        find.descendant(of: display, matching: find.text('Potencia atual')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: display, matching: find.text('11000 W')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: display, matching: find.text('3.80 kWh')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: display, matching: find.text('50.0%')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: display, matching: find.text('01:02:03')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: display, matching: find.text('02:44')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: display, matching: find.text('36.5 C')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: display, matching: find.text('Carregando')),
         findsOneWidget,
       );
     });

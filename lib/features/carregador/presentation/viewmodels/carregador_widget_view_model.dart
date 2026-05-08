@@ -55,7 +55,8 @@ class CarregadorWidgetViewModel {
        potenciaW = Rx<double>(potenciaInicialW),
        soc = Rx<double>(socInicial),
        temperaturaC = Rx<double>(temperaturaInicialC),
-       capacidadeBateriaKwh = Rx<double>(capacidadeBateriaInicialKwh) {
+       capacidadeBateriaKwh = Rx<double>(capacidadeBateriaInicialKwh),
+       tempoCarregamento = Rx<Duration>(Duration.zero) {
     _assinarMensagens();
   }
 
@@ -70,6 +71,7 @@ class CarregadorWidgetViewModel {
   final Rx<double> soc;
   final Rx<double> temperaturaC;
   final Rx<double> capacidadeBateriaKwh;
+  final Rx<Duration> tempoCarregamento;
 
   final conectado = Rx<bool>(false);
   final ocupado = Rx<bool>(false);
@@ -84,7 +86,10 @@ class CarregadorWidgetViewModel {
   StreamSubscription<ChamadaOcpp>? _assinaturaChamadas;
   Timer? _heartbeatTimer;
   Timer? _medidorTimer;
+  Timer? _tempoCarregamentoTimer;
   DateTime? _ultimaAtualizacaoMedidor;
+  DateTime? _inicioPeriodoCarregamento;
+  Duration _tempoCarregamentoAcumulado = Duration.zero;
   var _conectorZeroEnviado = false;
   var _descartado = false;
   var _enviandoValores = false;
@@ -117,6 +122,7 @@ class CarregadorWidgetViewModel {
   Future<void> desconectar() {
     return _executar(() async {
       _pararTimers();
+      _reiniciarTempoCarregamento();
       await _repository.desconectar();
       conectado.value = false;
       transacaoId.value = null;
@@ -154,9 +160,11 @@ class CarregadorWidgetViewModel {
 
       transacaoId.value = _lerInteiroOpcional(resposta['transactionId']);
       medidorInicioTransacaoWh.value = medidorWh.value;
+      _reiniciarTempoCarregamento();
       estado.value = EstadoCarregador.carregando;
       statusConector.value = StatusConectorOcpp.charging;
       _ultimaAtualizacaoMedidor = DateTime.now();
+      _iniciarTempoCarregamento();
       _iniciarEnvioPeriodicoValores();
 
       _registrarEvento(
@@ -177,6 +185,8 @@ class CarregadorWidgetViewModel {
 
       _medidorTimer?.cancel();
       _medidorTimer = null;
+      _acumularTempoCarregamento();
+      _pararTimerTempoCarregamento();
       estado.value = EstadoCarregador.pausado;
       statusConector.value = StatusConectorOcpp.suspendedEv;
       _registrarEvento('Carregamento pausado');
@@ -193,6 +203,7 @@ class CarregadorWidgetViewModel {
       estado.value = EstadoCarregador.carregando;
       statusConector.value = StatusConectorOcpp.charging;
       _ultimaAtualizacaoMedidor = DateTime.now();
+      _iniciarTempoCarregamento();
       _iniciarEnvioPeriodicoValores();
       _registrarEvento('Carregamento retomado');
       await enviarStatusAtual();
@@ -210,6 +221,8 @@ class CarregadorWidgetViewModel {
       _medidorTimer?.cancel();
       _medidorTimer = null;
       _incrementarMedidorPorTempo();
+      _atualizarTempoCarregamento();
+      _pararTimerTempoCarregamento();
       estado.value = EstadoCarregador.finalizando;
       statusConector.value = StatusConectorOcpp.finishing;
       await enviarStatusAtual();
@@ -351,6 +364,7 @@ class CarregadorWidgetViewModel {
     soc.dispose();
     temperaturaC.dispose();
     capacidadeBateriaKwh.dispose();
+    tempoCarregamento.dispose();
     conectado.dispose();
     ocupado.dispose();
     erro.dispose();
@@ -680,7 +694,62 @@ class CarregadorWidgetViewModel {
     _heartbeatTimer = null;
     _medidorTimer?.cancel();
     _medidorTimer = null;
+    _pararTimerTempoCarregamento();
     _ultimaAtualizacaoMedidor = null;
+    _inicioPeriodoCarregamento = null;
+  }
+
+  void _reiniciarTempoCarregamento() {
+    _tempoCarregamentoAcumulado = Duration.zero;
+    _inicioPeriodoCarregamento = null;
+    tempoCarregamento.value = Duration.zero;
+    _pararTimerTempoCarregamento();
+  }
+
+  void _iniciarTempoCarregamento() {
+    _pararTimerTempoCarregamento();
+    _inicioPeriodoCarregamento = DateTime.now();
+    _atualizarTempoCarregamento();
+    _tempoCarregamentoTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _atualizarTempoCarregamento(),
+    );
+  }
+
+  void _acumularTempoCarregamento() {
+    final inicio = _inicioPeriodoCarregamento;
+    if (inicio == null) {
+      return;
+    }
+
+    final decorrido = DateTime.now().difference(inicio);
+    if (!decorrido.isNegative) {
+      _tempoCarregamentoAcumulado += decorrido;
+    }
+
+    _inicioPeriodoCarregamento = null;
+    tempoCarregamento.value = _tempoCarregamentoAcumulado;
+  }
+
+  void _atualizarTempoCarregamento() {
+    final inicio = _inicioPeriodoCarregamento;
+    if (inicio == null) {
+      tempoCarregamento.value = _tempoCarregamentoAcumulado;
+      return;
+    }
+
+    final decorrido = DateTime.now().difference(inicio);
+    if (decorrido.isNegative) {
+      tempoCarregamento.value = _tempoCarregamentoAcumulado;
+      return;
+    }
+
+    tempoCarregamento.value = _tempoCarregamentoAcumulado + decorrido;
+  }
+
+  void _pararTimerTempoCarregamento() {
+    _tempoCarregamentoTimer?.cancel();
+    _tempoCarregamentoTimer = null;
   }
 
   void _registrarErro(Object error) {
