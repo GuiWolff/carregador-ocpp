@@ -38,7 +38,7 @@ class BotaoSecundario extends StatelessWidget {
         ),
       ),
       icon: icone ?? const SizedBox.shrink(),
-      label: Text(texto),
+      label: Text(texto, style: TextStyle(fontSize: 10),),
     );
   }
 }

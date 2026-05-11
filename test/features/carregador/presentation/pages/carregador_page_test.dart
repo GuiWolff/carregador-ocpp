@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:simulador_ocpp/features/carregador/carregador.dart';
 import 'package:simulador_ocpp/utils/tema.dart';
 
@@ -92,7 +93,7 @@ void main() {
       );
 
       carregadorViewModel.ocupado.value = true;
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(
         find.descendant(of: statusVisual, matching: find.text('Processando')),
@@ -164,7 +165,12 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.descendant(of: display, matching: find.text('Carregando')),
+        find.descendant(
+          of: find.byKey(
+            const ValueKey<String>('carregador_status_visual_CP-1'),
+          ),
+          matching: find.text('Carregando'),
+        ),
         findsOneWidget,
       );
     });
@@ -243,7 +249,7 @@ void main() {
       _expectConectorDecoracao(
         tester,
         'conector_chip_CP-2C_2',
-        TemaApp.temaClaro().colorScheme.surfaceContainer,
+        TemaApp.temaClaro().colorScheme.surfaceContainerHighest,
       );
 
       final posicaoEsquerdo = tester.getTopLeft(find.text('Esquerdo'));
@@ -252,6 +258,144 @@ void main() {
       expect(
         (posicaoEsquerdo.dy - posicaoDireito.dy).abs(),
         lessThanOrEqualTo(1),
+      );
+    });
+
+    testWidgets('altera status pelo chip e seleciona o conector ativo', (
+      tester,
+    ) async {
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[
+          _criarCarregadorComDoisConectores('CP-2C'),
+        ],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      final carregadorViewModel = viewModel.viewModelDoCarregador('CP-2C')!;
+      carregadorViewModel.conectado.value = true;
+
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      final statusConector2 = find.byKey(
+        const ValueKey<String>('conector_status_CP-2C_2'),
+      );
+
+      await tester.ensureVisible(statusConector2);
+      await tester.pumpAndSettle();
+      await tester.tap(statusConector2);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Preparing').last);
+      await tester.pumpAndSettle();
+
+      final repositorioOperacional = repositoriosOperacionais['CP-2C']!;
+
+      expect(carregadorViewModel.conectorId.value, 2);
+      expect(
+        carregadorViewModel.statusDoConector(2),
+        StatusConectorOcpp.preparing,
+      );
+      expect(
+        carregadorViewModel.statusDoConector(1),
+        StatusConectorOcpp.available,
+      );
+      expect(repositorioOperacional.statusNotifications.last['conectorId'], 2);
+      expect(
+        repositorioOperacional.statusNotifications.last['status'],
+        StatusConectorOcpp.preparing.valor,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('carregador_dialogo_CP-2C')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('exibe opções e altera status pelo chip sem conexão', (
+      tester,
+    ) async {
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[_criarCarregador('CP-1C')],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      final carregadorViewModel = viewModel.viewModelDoCarregador('CP-1C')!;
+
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      final statusConector = find.byKey(
+        const ValueKey<String>('conector_status_CP-1C_1'),
+      );
+
+      await tester.ensureVisible(statusConector);
+      await tester.pumpAndSettle();
+      await tester.tap(statusConector);
+      await tester.pumpAndSettle();
+
+      expect(find.text(StatusConectorOcpp.preparing.valor), findsOneWidget);
+
+      await tester.tap(find.text(StatusConectorOcpp.preparing.valor).last);
+      await tester.pumpAndSettle();
+
+      expect(
+        carregadorViewModel.statusDoConector(1),
+        StatusConectorOcpp.preparing,
+      );
+      expect(repositoriosOperacionais['CP-1C']!.statusNotifications, isEmpty);
+      expect(
+        find.byKey(const ValueKey<String>('carregador_dialogo_CP-1C')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('toque no dropdown em processamento não abre o painel', (
+      tester,
+    ) async {
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[_criarCarregador('CP-1C')],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      final carregadorViewModel = viewModel.viewModelDoCarregador('CP-1C')!;
+      carregadorViewModel.conectado.value = true;
+      carregadorViewModel.ocupado.value = true;
+
+      await _pumpCarregadoresPage(tester, viewModel);
+
+      final statusConector = find.byKey(
+        const ValueKey<String>('conector_status_CP-1C_1'),
+      );
+
+      await tester.ensureVisible(statusConector);
+      await tester.pumpAndSettle();
+      await tester.tap(statusConector);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('carregador_dialogo_CP-1C')),
+        findsNothing,
       );
     });
 
@@ -426,6 +570,18 @@ void main() {
         find.byKey(const ValueKey<String>('carregador_dialogo_CP-1')),
         findsOneWidget,
       );
+      final qrCode = find.byKey(const Key('carregador_qrcode'));
+      final qrImage = find.descendant(
+        of: qrCode,
+        matching: find.byType(QrImageView),
+      );
+
+      expect(qrCode, findsOneWidget);
+      expect(tester.getSize(qrCode), const Size(120, 120));
+      expect(
+        tester.widget<QrImageView>(qrImage).semanticsLabel,
+        'QR Code do carregador CP-1',
+      );
       expect(find.byKey(const Key('carregador_conectar')), findsOneWidget);
       expect(
         find.byKey(const Key('carregador_dialogo_fechar')),
@@ -541,6 +697,7 @@ final class _CarregadorRepositoryOperacionalFalso
     implements CarregadorRepository {
   final _mensagens = StreamController<MensagemOcpp>.broadcast();
   final _chamadas = StreamController<ChamadaOcpp>.broadcast();
+  final statusNotifications = <Map<String, dynamic>>[];
   var desconexoes = 0;
 
   @override
@@ -555,6 +712,24 @@ final class _CarregadorRepositoryOperacionalFalso
   @override
   Future<void> desconectar() async {
     desconexoes++;
+  }
+
+  @override
+  Future<Map<String, dynamic>> enviarStatusNotification({
+    required int conectorId,
+    required StatusConectorOcpp status,
+    CodigoErroOcpp codigoErro = CodigoErroOcpp.noError,
+    DateTime? data,
+    String? info,
+    String? vendorId,
+    String? vendorErrorCode,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    statusNotifications.add(<String, dynamic>{
+      'conectorId': conectorId,
+      'status': status.valor,
+    });
+    return const <String, dynamic>{};
   }
 
   Future<void> fechar() async {

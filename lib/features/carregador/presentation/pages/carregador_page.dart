@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:simulador_ocpp/features/carregador/domain/models/modelos_carregador.dart';
 import 'package:simulador_ocpp/features/carregador/presentation/viewmodels/carregador_widget_view_model.dart';
 import 'package:simulador_ocpp/features/carregador/presentation/viewmodels/carregadores_page_view_model.dart';
@@ -8,6 +11,8 @@ import 'package:simulador_ocpp/observable/obx.dart';
 import 'package:simulador_ocpp/widget/botao_primario.dart';
 import 'package:simulador_ocpp/widget/botao_secundario.dart';
 import 'package:simulador_ocpp/widget/custom_alert_dialog.dart';
+import 'package:simulador_ocpp/widget/custom_circular_progress_bar.dart';
+import 'package:simulador_ocpp/widget/custom_dropdown.dart';
 
 class CarregadoresPage extends StatefulWidget {
   const CarregadoresPage({super.key, CarregadoresPageViewModel? viewModel})
@@ -133,6 +138,7 @@ class _CarregadoresPageState extends State<CarregadoresPage> {
         conteudo: CarregadorWidget(
           key: ValueKey<String>('carregador_dialogo_${configuracao.id}'),
           viewModel: item.viewModel,
+          carregadorId: configuracao.id,
           titulo: configuracao.id,
           subtitulo: _formatarSubtitulo(configuracao),
         ),
@@ -261,7 +267,7 @@ class _CarregadoresConteudo extends StatelessWidget {
                   ),
                 Expanded(
                   child: carregando && carregadores.isEmpty
-                      ? const _CarregandoCarregadores()
+                      ? const CustomCircularProgressBar()
                       : carregadores.isEmpty
                       ? _EstadoVazio(onAdicionar: onAdicionar, ocupado: ocupado)
                       : _ListaCarregadores(
@@ -450,22 +456,6 @@ class _MensagemErro extends StatelessWidget {
   }
 }
 
-class _CarregandoCarregadores extends StatelessWidget {
-  const _CarregandoCarregadores();
-
-  @override
-  Widget build(BuildContext context) {
-    final cores = Theme.of(context).colorScheme;
-
-    return Center(
-      child: CircularProgressIndicator(
-        color: cores.primary,
-        strokeCap: StrokeCap.round,
-      ),
-    );
-  }
-}
-
 class _EstadoVazio extends StatelessWidget {
   const _EstadoVazio({required this.onAdicionar, required this.ocupado});
 
@@ -632,6 +622,8 @@ class _CarregadorBotaoVisual extends StatelessWidget {
       final estado = item.viewModel.estado.value;
       final conectado = item.viewModel.conectado.value;
       final ocupado = item.viewModel.ocupado.value;
+      final conectorAtivoId = item.viewModel.conectorId.value;
+      final statusConectores = item.viewModel.statusConectores.value;
       final corEstado = _corEstado(tema, estado, conectado);
       final configuracao = item.configuracao;
 
@@ -675,21 +667,19 @@ class _CarregadorBotaoVisual extends StatelessWidget {
                         configuracao: configuracao,
                         compacto: compacto,
                         estadoVisual: estadoVisual,
+                        conectorAtivoId: conectorAtivoId,
+                        statusConectores: statusConectores,
+                        onAlterarStatusConector: (conectorId, status) {
+                          unawaited(
+                            item.viewModel.alterarStatusDoConector(
+                              conectorId,
+                              status,
+                            ),
+                          );
+                        },
                       );
-                      final detalhes = _CarregadorBotaoDetalhes(
-                        carregadorId: configuracao.id,
-                        estadoVisual: estadoVisual,
-                      );
-
                       if (compacto) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            Center(child: visualizacao),
-                            const SizedBox(height: 16),
-                            detalhes,
-                          ],
-                        );
+                        return Center(child: visualizacao);
                       }
 
                       return Row(
@@ -697,7 +687,7 @@ class _CarregadorBotaoVisual extends StatelessWidget {
                         children: <Widget>[
                           visualizacao,
                           const SizedBox(width: 22),
-                          Expanded(child: detalhes),
+                          const Spacer(),
                           const SizedBox(width: 12),
                           Icon(
                             Icons.chevron_right,
@@ -739,11 +729,18 @@ class _CarregadorVisualizacao extends StatelessWidget {
     required this.configuracao,
     required this.compacto,
     required this.estadoVisual,
+    required this.conectorAtivoId,
+    required this.statusConectores,
+    required this.onAlterarStatusConector,
   });
 
   final CarregadorConfigurado configuracao;
   final bool compacto;
   final _EstadoVisualCarregador estadoVisual;
+  final int conectorAtivoId;
+  final Map<int, StatusConectorOcpp> statusConectores;
+  final void Function(int conectorId, StatusConectorOcpp status)
+  onAlterarStatusConector;
 
   @override
   Widget build(BuildContext context) {
@@ -765,6 +762,9 @@ class _CarregadorVisualizacao extends StatelessWidget {
             carregadorId: configuracao.id,
             conectores: configuracao.conectores,
             estadoVisual: estadoVisual,
+            conectorAtivoId: conectorAtivoId,
+            statusConectores: statusConectores,
+            onAlterarStatusConector: onAlterarStatusConector,
           ),
         ],
       ),
@@ -785,15 +785,15 @@ class _ImagemCarregador extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tema = Theme.of(context);
     return Stack(
       children: <Widget>[
-
         Align(
           alignment: .topCenter,
           child: Padding(
             padding: .only(top: 12),
             child: _DisplayCarregador(
-              key: ValueKey<String>('carregador_display_A'),
+              key: ValueKey<String>('carregador_display_${configuracao.id}'),
               estadoVisual: estadoVisual,
             ),
           ),
@@ -816,8 +816,6 @@ class _ImagemCarregador extends StatelessWidget {
           ),
         ),
 
-
-
         Positioned(
           bottom: 10,
           left: 0,
@@ -825,6 +823,24 @@ class _ImagemCarregador extends StatelessWidget {
           child: _StatusVisualCarregador(
             carregadorId: configuracao.id,
             estadoVisual: estadoVisual,
+          ),
+        ),
+
+        Positioned(
+          bottom: 60,
+          right: 30,
+          child: Container(
+            color: tema.colorScheme.primary,
+            width: 80,
+            height: 80,
+            padding: const EdgeInsets.all(4),
+            child: QrImageView(
+              padding: .all(4),
+              data: configuracao.id,
+              version: QrVersions.auto,
+              backgroundColor: Colors.white,
+              semanticsLabel: 'QR Code do carregador ${configuracao.id}',
+            ),
           ),
         ),
       ],
@@ -878,38 +894,6 @@ class _StatusVisualCarregador extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _CarregadorBotaoDetalhes extends StatelessWidget {
-  const _CarregadorBotaoDetalhes({
-    required this.carregadorId,
-    required this.estadoVisual,
-  });
-
-  final String carregadorId;
-  final _EstadoVisualCarregador estadoVisual;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-       /* Align(
-          alignment: Alignment.centerLeft,
-          child: _EstadoCarregadorChip(
-            estado: estadoVisual.estado,
-            ocupado: estadoVisual.ocupado,
-            corEstado: estadoVisual.corEstado,
-          ),
-        ),
-        const SizedBox(height: 12),
-        _DisplayCarregador(
-          key: ValueKey<String>('carregador_display_$carregadorId'),
-          estadoVisual: estadoVisual,
-        ),*/
-      ],
     );
   }
 }
@@ -1055,11 +1039,18 @@ class _ConectoresConfigurados extends StatelessWidget {
     required this.carregadorId,
     required this.conectores,
     required this.estadoVisual,
+    required this.conectorAtivoId,
+    required this.statusConectores,
+    required this.onAlterarStatusConector,
   });
 
   final String carregadorId;
   final List<ConectorCarregadorConfigurado> conectores;
   final _EstadoVisualCarregador estadoVisual;
+  final int conectorAtivoId;
+  final Map<int, StatusConectorOcpp> statusConectores;
+  final void Function(int conectorId, StatusConectorOcpp status)
+  onAlterarStatusConector;
 
   @override
   Widget build(BuildContext context) {
@@ -1083,6 +1074,10 @@ class _ConectoresConfigurados extends StatelessWidget {
               totalConectores: totalConectores,
               indice: 0,
               estadoVisual: estadoVisual,
+              status: _statusConector(conectores.single.id),
+              selecionado: conectorAtivoId == conectores.single.id,
+              onAlterarStatus: (status) =>
+                  onAlterarStatusConector(conectores.single.id, status),
             ),
           );
         }
@@ -1108,6 +1103,12 @@ class _ConectoresConfigurados extends StatelessWidget {
                       totalConectores: totalConectores,
                       indice: indice,
                       estadoVisual: estadoVisual,
+                      status: _statusConector(conectores[indice].id),
+                      selecionado: conectorAtivoId == conectores[indice].id,
+                      onAlterarStatus: (status) => onAlterarStatusConector(
+                        conectores[indice].id,
+                        status,
+                      ),
                     ),
                   ),
               ],
@@ -1127,15 +1128,23 @@ class _ConectoresConfigurados extends StatelessWidget {
                 totalConectores: totalConectores,
                 indice: indice,
                 estadoVisual: estadoVisual,
+                status: _statusConector(conectores[indice].id),
+                selecionado: conectorAtivoId == conectores[indice].id,
+                onAlterarStatus: (status) =>
+                    onAlterarStatusConector(conectores[indice].id, status),
               ),
           ],
         );
       },
     );
   }
+
+  StatusConectorOcpp _statusConector(int conectorId) {
+    return statusConectores[conectorId] ?? StatusConectorOcpp.available;
+  }
 }
 
-const _alturaConectorConfiguradoChip = 260.0;
+const _alturaConectorConfiguradoChip = 284.0;
 const _espacamentoConectoresConfigurados = 6.0;
 const _larguraMaximaConectoresConfigurados = 300.0;
 
@@ -1146,6 +1155,9 @@ class _ConectorConfiguradoChip extends StatelessWidget {
     required this.totalConectores,
     required this.indice,
     required this.estadoVisual,
+    required this.status,
+    required this.selecionado,
+    required this.onAlterarStatus,
   });
 
   final String carregadorId;
@@ -1153,6 +1165,9 @@ class _ConectorConfiguradoChip extends StatelessWidget {
   final int totalConectores;
   final int indice;
   final _EstadoVisualCarregador estadoVisual;
+  final StatusConectorOcpp status;
+  final bool selecionado;
+  final ValueChanged<StatusConectorOcpp> onAlterarStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -1160,7 +1175,14 @@ class _ConectorConfiguradoChip extends StatelessWidget {
     final cores = tema.colorScheme;
     final rotuloTipo = _rotuloTipo(conector.tipo);
     final rotuloPosicao = _rotuloPosicaoConector(totalConectores, indice);
-    final rotuloStatus = estadoVisual.rotuloStatus;
+    final rotuloStatus = _rotuloStatusConector(estadoVisual, status);
+    final statusDropdown = _StatusConectorDropdownChip(
+      carregadorId: carregadorId,
+      conectorId: conector.id,
+      status: status,
+      habilitado: !estadoVisual.ocupado,
+      onChanged: onAlterarStatus,
+    );
 
     if (_temConectorCentral(totalConectores)) {
       return SizedBox(
@@ -1169,7 +1191,7 @@ class _ConectorConfiguradoChip extends StatelessWidget {
         height: _alturaConectorConfiguradoChip,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: _fundoConectorCentral(cores),
+            color: cores.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(24),
           ),
           child: Padding(
@@ -1238,7 +1260,9 @@ class _ConectorConfiguradoChip extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                _StatusConectorCentralChip(estadoVisual: estadoVisual),
+
+                //dropdown
+                statusDropdown,
               ],
             ),
           ),
@@ -1253,7 +1277,7 @@ class _ConectorConfiguradoChip extends StatelessWidget {
         height: _alturaConectorConfiguradoChip,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: _fundoConectorLateral(cores, indice),
+            color: cores.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(18),
           ),
           child: Padding(
@@ -1322,7 +1346,7 @@ class _ConectorConfiguradoChip extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                _StatusConectorLateralChip(estadoVisual: estadoVisual),
+                statusDropdown,
               ],
             ),
           ),
@@ -1368,76 +1392,50 @@ class _ConectorConfiguradoChip extends StatelessWidget {
   }
 }
 
-class _StatusConectorLateralChip extends StatelessWidget {
-  const _StatusConectorLateralChip({required this.estadoVisual});
+class _StatusConectorDropdownChip extends StatelessWidget {
+  const _StatusConectorDropdownChip({
+    required this.carregadorId,
+    required this.conectorId,
+    required this.status,
+    required this.habilitado,
+    required this.onChanged,
+  });
 
-  final _EstadoVisualCarregador estadoVisual;
+  final String carregadorId;
+  final int conectorId;
+  final StatusConectorOcpp status;
+  final bool habilitado;
+  final ValueChanged<StatusConectorOcpp> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final tema = Theme.of(context);
-    final cor = _corStatusConectorCentral(estadoVisual);
+    final dropdown = CustomDropdown<StatusConectorOcpp>(
+      campoKey: ValueKey<String>('conector_status_${carregadorId}_$conectorId'),
+      valorInicial: status,
+      hintText: 'Status',
+      prefixIcon: Icons.sensors,
+      opcoes: StatusConectorOcpp.values,
+      rotuloOpcao: (opcao) => opcao.valor,
+      habilitado: habilitado,
+      onChanged: (valor) {
+        if (valor == null) {
+          return;
+        }
+
+        onChanged(valor);
+      },
+    );
+
+    if (habilitado) {
+      return SizedBox(height: 48, child: dropdown);
+    }
 
     return SizedBox(
-      width: double.infinity,
-      height: 34,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: cor.withValues(alpha: 0.22),
-          borderRadius: BorderRadius.circular(7),
-        ),
-        child: Center(
-          child: Text(
-            estadoVisual.rotuloStatus,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: tema.textTheme.labelLarge?.copyWith(
-              color: tema.colorScheme.onSurface,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _StatusConectorCentralChip extends StatelessWidget {
-  const _StatusConectorCentralChip({required this.estadoVisual});
-
-  final _EstadoVisualCarregador estadoVisual;
-
-  @override
-  Widget build(BuildContext context) {
-    final tema = Theme.of(context);
-    final cor = _corStatusConectorCentral(estadoVisual);
-
-    return Align(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 170),
-        child: SizedBox(
-          width: double.infinity,
-          height: 34,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: cor.withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: Center(
-              child: Text(
-                estadoVisual.rotuloStatus,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: tema.textTheme.labelLarge?.copyWith(
-                  color: tema.colorScheme.onSurface,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-        ),
+      height: 48,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {},
+        child: dropdown,
       ),
     );
   }
@@ -1576,29 +1574,10 @@ String _assetConector(TipoConectorCarregador tipo) {
   };
 }
 
-Color _fundoConectorCentral(ColorScheme cores) {
-  return cores.surfaceContainerHighest;
-}
-
-Color _fundoConectorLateral(ColorScheme cores, int indice) {
-  return _fundoConectorCentral(cores);
-}
-
-Color _corStatusConectorCentral(_EstadoVisualCarregador estadoVisual) {
-  if (!estadoVisual.conectado &&
-      estadoVisual.estado != EstadoCarregador.conectando) {
-    return estadoVisual.corEstado;
-  }
-
-  if (estadoVisual.estado == EstadoCarregador.disponivel) {
-    return Colors.green.shade400;
-  }
-
-  return estadoVisual.corEstado;
-}
-
-Color _corStatusVisualCarregador(ThemeData tema, _EstadoVisualCarregador estadoVisual) {
-
+Color _corStatusVisualCarregador(
+  ThemeData tema,
+  _EstadoVisualCarregador estadoVisual,
+) {
   if (estadoVisual.ocupado) {
     return estadoVisual.corEstado;
   }
@@ -1639,6 +1618,18 @@ String _rotuloPosicaoConector(int totalConectores, int indice) {
   }
 
   return 'Conector ${indice + 1}';
+}
+
+String _rotuloStatusConector(
+  _EstadoVisualCarregador estadoVisual,
+  StatusConectorOcpp status,
+) {
+  if (!estadoVisual.conectado &&
+      estadoVisual.estado != EstadoCarregador.conectando) {
+    return EstadoCarregador.desconectado.rotulo;
+  }
+
+  return status.valor;
 }
 
 String _rotuloTipo(TipoConectorCarregador tipo) {

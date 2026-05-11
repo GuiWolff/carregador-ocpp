@@ -45,7 +45,7 @@ class BotaoPrimario extends StatelessWidget {
               ),
             )
           : Icon(icone, size: 18),
-      label: Text(carregando ? textoCarregando : texto),
+      label: Text(carregando ? textoCarregando : texto, style: TextStyle(fontSize: 10),),
     );
   }
 }

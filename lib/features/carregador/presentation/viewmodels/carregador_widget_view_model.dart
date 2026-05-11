@@ -33,6 +33,10 @@ extension EstadoCarregadorDescricao on EstadoCarregador {
   }
 }
 
+const _temperaturaAmbienteSimuladaC = 28.0;
+const _temperaturaMinimaSimuladaC = 18.0;
+const _temperaturaMaximaSimuladaC = 58.0;
+
 class CarregadorWidgetViewModel {
   CarregadorWidgetViewModel({
     CarregadorRepository? repository,
@@ -56,7 +60,12 @@ class CarregadorWidgetViewModel {
        soc = Rx<double>(socInicial),
        temperaturaC = Rx<double>(temperaturaInicialC),
        capacidadeBateriaKwh = Rx<double>(capacidadeBateriaInicialKwh),
-       tempoCarregamento = Rx<Duration>(Duration.zero) {
+       tempoCarregamento = Rx<Duration>(Duration.zero),
+       statusConectores = Rx<Map<int, StatusConectorOcpp>>(
+         Map<int, StatusConectorOcpp>.unmodifiable(<int, StatusConectorOcpp>{
+           conectorIdInicial: StatusConectorOcpp.available,
+         }),
+       ) {
     _assinarMensagens();
   }
 
@@ -72,6 +81,7 @@ class CarregadorWidgetViewModel {
   final Rx<double> temperaturaC;
   final Rx<double> capacidadeBateriaKwh;
   final Rx<Duration> tempoCarregamento;
+  final Rx<Map<int, StatusConectorOcpp>> statusConectores;
 
   final conectado = Rx<bool>(false);
   final ocupado = Rx<bool>(false);
@@ -115,6 +125,10 @@ class CarregadorWidgetViewModel {
     return estado.value == EstadoCarregador.carregando;
   }
 
+  StatusConectorOcpp statusDoConector(int id) {
+    return statusConectores.value[id] ?? StatusConectorOcpp.available;
+  }
+
   Future<void> conectar({String? servidorTexto}) {
     return _executar(() => _conectarInterno(servidorTexto: servidorTexto));
   }
@@ -127,7 +141,7 @@ class CarregadorWidgetViewModel {
       conectado.value = false;
       transacaoId.value = null;
       estado.value = EstadoCarregador.desconectado;
-      statusConector.value = StatusConectorOcpp.unavailable;
+      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.unavailable);
       _registrarEvento('WebSocket desconectado');
     });
   }
@@ -145,7 +159,7 @@ class CarregadorWidgetViewModel {
       }
 
       estado.value = EstadoCarregador.preparando;
-      statusConector.value = StatusConectorOcpp.preparing;
+      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.preparing);
       await enviarStatusAtual();
 
       if (autorizarAntes) {
@@ -162,7 +176,7 @@ class CarregadorWidgetViewModel {
       medidorInicioTransacaoWh.value = medidorWh.value;
       _reiniciarTempoCarregamento();
       estado.value = EstadoCarregador.carregando;
-      statusConector.value = StatusConectorOcpp.charging;
+      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.charging);
       _ultimaAtualizacaoMedidor = DateTime.now();
       _iniciarTempoCarregamento();
       _iniciarEnvioPeriodicoValores();
@@ -188,7 +202,7 @@ class CarregadorWidgetViewModel {
       _acumularTempoCarregamento();
       _pararTimerTempoCarregamento();
       estado.value = EstadoCarregador.pausado;
-      statusConector.value = StatusConectorOcpp.suspendedEv;
+      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.suspendedEv);
       _registrarEvento('Carregamento pausado');
       await enviarStatusAtual();
     });
@@ -201,7 +215,7 @@ class CarregadorWidgetViewModel {
       }
 
       estado.value = EstadoCarregador.carregando;
-      statusConector.value = StatusConectorOcpp.charging;
+      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.charging);
       _ultimaAtualizacaoMedidor = DateTime.now();
       _iniciarTempoCarregamento();
       _iniciarEnvioPeriodicoValores();
@@ -224,7 +238,7 @@ class CarregadorWidgetViewModel {
       _atualizarTempoCarregamento();
       _pararTimerTempoCarregamento();
       estado.value = EstadoCarregador.finalizando;
-      statusConector.value = StatusConectorOcpp.finishing;
+      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.finishing);
       await enviarStatusAtual();
 
       final id = transacaoId.value;
@@ -241,7 +255,7 @@ class CarregadorWidgetViewModel {
       transacaoId.value = null;
       medidorInicioTransacaoWh.value = medidorWh.value;
       estado.value = EstadoCarregador.disponivel;
-      statusConector.value = StatusConectorOcpp.available;
+      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.available);
       _registrarEvento('Transacao finalizada');
       await enviarStatusAtual();
     });
@@ -288,11 +302,25 @@ class CarregadorWidgetViewModel {
   }
 
   Future<void> alterarStatus(StatusConectorOcpp status) {
+    return alterarStatusDoConector(conectorId.value, status);
+  }
+
+  Future<void> alterarStatusDoConector(int id, StatusConectorOcpp status) {
     return _executar(() async {
-      statusConector.value = status;
+      selecionarConector(id);
+      _aplicarStatusConector(id, status);
       estado.value = _estadoPorStatus(status);
       await enviarStatusAtual();
     });
+  }
+
+  void selecionarConector(int id) {
+    if (id < 1) {
+      return;
+    }
+
+    conectorId.value = id;
+    statusConector.value = statusDoConector(id);
   }
 
   void atualizarIdTag(String valor) {
@@ -301,11 +329,11 @@ class CarregadorWidgetViewModel {
 
   void atualizarConectorId(String valor) {
     final parsed = int.tryParse(valor.trim());
-    if (parsed == null || parsed < 0) {
+    if (parsed == null || parsed < 1) {
       return;
     }
 
-    conectorId.value = parsed;
+    selecionarConector(parsed);
   }
 
   void atualizarPotencia(String valor) {
@@ -365,6 +393,7 @@ class CarregadorWidgetViewModel {
     temperaturaC.dispose();
     capacidadeBateriaKwh.dispose();
     tempoCarregamento.dispose();
+    statusConectores.dispose();
     conectado.dispose();
     ocupado.dispose();
     erro.dispose();
@@ -383,7 +412,7 @@ class CarregadorWidgetViewModel {
     await _repository.conectar(servidor.value);
     conectado.value = true;
     estado.value = EstadoCarregador.disponivel;
-    statusConector.value = StatusConectorOcpp.available;
+    _aplicarStatusConector(conectorId.value, StatusConectorOcpp.available);
     _registrarEvento('WebSocket conectado em ${servidor.value}');
 
     final bootNotification = await _repository.enviarBootNotification(
@@ -440,7 +469,7 @@ class CarregadorWidgetViewModel {
             idTag.value = tag;
           }
           if (connector != null) {
-            conectorId.value = connector;
+            selecionarConector(connector);
           }
 
           await _repository.responderChamadaBackend(
@@ -513,6 +542,17 @@ class CarregadorWidgetViewModel {
     await _repository.responderChamadaBackend(chamada, const <String, dynamic>{
       'status': 'Rejected',
     });
+  }
+
+  void _aplicarStatusConector(int id, StatusConectorOcpp status) {
+    if (id < 1) {
+      return;
+    }
+
+    statusConector.value = status;
+    statusConectores.value = Map<int, StatusConectorOcpp>.unmodifiable(
+      <int, StatusConectorOcpp>{...statusConectores.value, id: status},
+    );
   }
 
   Future<void> _autorizarIdTag() async {
@@ -642,6 +682,35 @@ class CarregadorWidgetViewModel {
       final incrementoSoc = (incrementoWh / capacidadeWh) * 100;
       soc.value = min(100, soc.value + incrementoSoc);
     }
+
+    _atualizarTemperaturaSimulada(horas: horas, incrementoWh: incrementoWh);
+  }
+
+  void _atualizarTemperaturaSimulada({
+    required double horas,
+    required int incrementoWh,
+  }) {
+    if (horas <= 0 || incrementoWh <= 0) {
+      return;
+    }
+
+    final potenciaKw = potenciaW.value / 1000;
+    final socNormalizado = (soc.value / 100).clamp(0.0, 1.0);
+    final ciclosDezSegundos = max(1.0, horas * 360);
+    final alvoTermico =
+        _temperaturaAmbienteSimuladaC +
+        min(12.0, potenciaKw * 0.85) +
+        (socNormalizado * 3.5);
+    final oscilacaoOperacional = sin((medidorWh.value + incrementoWh) / 260);
+    final alvoComOscilacao = alvoTermico + (oscilacaoOperacional * 0.35);
+    final fatorAproximacao = (0.08 * ciclosDezSegundos).clamp(0.0, 0.28);
+    final novaTemperatura =
+        temperaturaC.value +
+        ((alvoComOscilacao - temperaturaC.value) * fatorAproximacao);
+
+    temperaturaC.value = novaTemperatura
+        .clamp(_temperaturaMinimaSimuladaC, _temperaturaMaximaSimuladaC)
+        .toDouble();
   }
 
   Future<void> _executar(Future<void> Function() acao) async {

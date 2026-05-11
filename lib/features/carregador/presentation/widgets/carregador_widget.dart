@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:simulador_ocpp/features/carregador/domain/models/modelos_carregador.dart';
 import 'package:simulador_ocpp/features/carregador/presentation/viewmodels/carregador_widget_view_model.dart';
 import 'package:simulador_ocpp/observable/i_rx_subscribe.dart';
@@ -15,11 +16,13 @@ class CarregadorWidget extends StatefulWidget {
   const CarregadorWidget({
     super.key,
     this.viewModel,
+    this.carregadorId,
     this.titulo = 'Carregador A',
     this.subtitulo = 'Ponto de recarga OCPP 1.6J',
   });
 
   final CarregadorWidgetViewModel? viewModel;
+  final String? carregadorId;
   final String titulo;
   final String subtitulo;
 
@@ -160,6 +163,7 @@ class _CarregadorWidgetState extends State<CarregadorWidget> {
       final estado = _viewModel.estado.value;
       final conectado = _viewModel.conectado.value;
       final ocupado = _viewModel.ocupado.value;
+      final carregadorId = widget.carregadorId ?? widget.titulo;
 
       return DecoratedBox(
         decoration: BoxDecoration(
@@ -185,6 +189,8 @@ class _CarregadorWidgetState extends State<CarregadorWidget> {
                 estado: estado,
                 conectado: conectado,
               ),
+              const SizedBox(height: 18),
+              _QrCodeCarregador(carregadorId: carregadorId),
               const SizedBox(height: 18),
               _MetricasCarregador(viewModel: _viewModel),
               const SizedBox(height: 18),
@@ -322,6 +328,37 @@ class _CabecalhoCarregador extends StatelessWidget {
       EstadoCarregador.finalizando => Colors.blueGrey.shade700,
       _ => tema.colorScheme.primary,
     };
+  }
+}
+
+class _QrCodeCarregador extends StatelessWidget {
+  const _QrCodeCarregador({required this.carregadorId});
+
+  final String carregadorId;
+
+  @override
+  Widget build(BuildContext context) {
+    final tema = Theme.of(context);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Semantics(
+        label: 'QR Code do carregador $carregadorId',
+        child: Container(
+          key: const Key('carregador_qrcode'),
+          color: tema.colorScheme.primary,
+          width: 120,
+          height: 120,
+          padding: const EdgeInsets.all(8),
+          child: QrImageView(
+            data: carregadorId,
+            version: QrVersions.auto,
+            backgroundColor: Colors.white,
+            semanticsLabel: 'QR Code do carregador $carregadorId',
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -62,6 +62,70 @@ void main() {
       viewModel.dispose();
       await repositorio.fechar();
     });
+
+    test(
+      'altera status de conector especifico e usa connectorId correto',
+      () async {
+        final repositorio = _CarregadorRepositoryFalso()
+          ..respostas['BootNotification'] = <String, dynamic>{
+            'status': 'Accepted',
+            'interval': 120,
+          };
+        final viewModel = CarregadorWidgetViewModel(repository: repositorio);
+
+        await viewModel.conectar(servidorTexto: 'ws://localhost:5001/OCPP/A');
+        repositorio.registros.clear();
+
+        await viewModel.alterarStatusDoConector(
+          2,
+          StatusConectorOcpp.preparing,
+        );
+
+        expect(viewModel.conectorId.value, 2);
+        expect(viewModel.statusConector.value, StatusConectorOcpp.preparing);
+        expect(viewModel.statusDoConector(1), StatusConectorOcpp.available);
+        expect(viewModel.statusDoConector(2), StatusConectorOcpp.preparing);
+        expect(repositorio.acoes, <String>['StatusNotification']);
+        expect(repositorio.registros.single.payload['conectorId'], 2);
+        expect(repositorio.registros.single.payload['status'], 'Preparing');
+
+        viewModel.dispose();
+        await repositorio.fechar();
+      },
+    );
+
+    test('simula variacao de temperatura durante recarga', () async {
+      final repositorio = _CarregadorRepositoryFalso()
+        ..respostas['BootNotification'] = <String, dynamic>{
+          'status': 'Accepted',
+          'interval': 120,
+        }
+        ..respostas['Authorize'] = <String, dynamic>{
+          'idTagInfo': <String, dynamic>{'status': 'Accepted'},
+        }
+        ..respostas['StartTransaction'] = <String, dynamic>{
+          'transactionId': 42,
+        };
+      final viewModel = CarregadorWidgetViewModel(
+        repository: repositorio,
+        potenciaInicialW: 11000,
+        socInicial: 45,
+        temperaturaInicialC: 30,
+      );
+
+      await viewModel.conectar(servidorTexto: 'ws://localhost:5001/OCPP/A');
+      await viewModel.iniciarCarregamento();
+
+      final temperaturaInicial = viewModel.temperaturaC.value;
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await viewModel.enviarValoresMedidor(incrementarAntes: true);
+
+      expect(viewModel.temperaturaC.value, greaterThan(temperaturaInicial));
+
+      viewModel.dispose();
+      await repositorio.fechar();
+    });
   });
 }
 
