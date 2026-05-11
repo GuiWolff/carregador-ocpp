@@ -218,6 +218,9 @@ CarregadorWidgetViewModel _criarCarregadorViewModelPadrao(
       'ws://localhost:5001/OCPP/${Uri.encodeComponent(configuracao.id)}',
     ),
     conectorIdInicial: configuracao.conectores.first.id,
+    idsConectoresConfigurados: configuracao.conectores.map(
+      (conector) => conector.id,
+    ),
   );
 }
 

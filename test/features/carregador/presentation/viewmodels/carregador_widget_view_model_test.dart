@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:simulador_ocpp/features/carregador/carregador.dart';
 
@@ -94,6 +95,264 @@ void main() {
       },
     );
 
+    test('mantem valores operacionais independentes por conector', () async {
+      final repositorio = _CarregadorRepositoryFalso();
+      final viewModel = CarregadorWidgetViewModel(
+        repository: repositorio,
+        idsConectoresConfigurados: const <int>[1, 2],
+      );
+
+      viewModel.atualizarPotencia('11000');
+      viewModel.atualizarMedidor('5000');
+      viewModel.atualizarSoc('50');
+      viewModel.atualizarTemperatura('36.5');
+
+      viewModel.selecionarConector(2);
+
+      expect(viewModel.potenciaW.value, 7400);
+      expect(viewModel.medidorWh.value, 0);
+      expect(viewModel.soc.value, 30);
+      expect(viewModel.temperaturaC.value, 34);
+
+      viewModel.atualizarPotencia('22000');
+      viewModel.atualizarMedidor('9000');
+      viewModel.atualizarSoc('80');
+      viewModel.atualizarTemperatura('41.2');
+
+      viewModel.selecionarConector(1);
+
+      expect(viewModel.potenciaW.value, 11000);
+      expect(viewModel.medidorWh.value, 5000);
+      expect(viewModel.soc.value, 50);
+      expect(viewModel.temperaturaC.value, 36.5);
+
+      viewModel.selecionarConector(2);
+
+      expect(viewModel.potenciaW.value, 22000);
+      expect(viewModel.medidorWh.value, 9000);
+      expect(viewModel.soc.value, 80);
+      expect(viewModel.temperaturaC.value, 41.2);
+
+      viewModel.dispose();
+      await repositorio.fechar();
+    });
+
+    test(
+      'inicia transacoes nos conectores 1 e 2 com ids independentes',
+      () async {
+        final repositorio = _CarregadorRepositoryFalso()
+          ..respostas['BootNotification'] = <String, dynamic>{
+            'status': 'Accepted',
+            'interval': 120,
+          };
+        final viewModel = CarregadorWidgetViewModel(
+          repository: repositorio,
+          idsConectoresConfigurados: const <int>[1, 2],
+        );
+
+        await viewModel.conectar(servidorTexto: 'ws://localhost:5001/OCPP/A');
+
+        viewModel.atualizarMedidor('1000');
+        repositorio.respostas['StartTransaction'] = <String, dynamic>{
+          'transactionId': 101,
+        };
+        await viewModel.iniciarCarregamento(autorizarAntes: false);
+
+        viewModel.selecionarConector(2);
+        viewModel.atualizarMedidor('2000');
+        repositorio.respostas['StartTransaction'] = <String, dynamic>{
+          'transactionId': 202,
+        };
+        await viewModel.iniciarCarregamento(autorizarAntes: false);
+
+        viewModel.selecionarConector(1);
+        expect(viewModel.transacaoId.value, 101);
+        expect(viewModel.medidorInicioTransacaoWh.value, 1000);
+        expect(viewModel.estado.value, EstadoCarregador.carregando);
+
+        viewModel.selecionarConector(2);
+        expect(viewModel.transacaoId.value, 202);
+        expect(viewModel.medidorInicioTransacaoWh.value, 2000);
+        expect(viewModel.estado.value, EstadoCarregador.carregando);
+
+        final starts = repositorio.registros
+            .where((registro) => registro.acao == 'StartTransaction')
+            .toList(growable: false);
+        expect(starts, hasLength(2));
+        expect(starts[0].payload['conectorId'], 1);
+        expect(starts[0].payload['medidorInicialWh'], 1000);
+        expect(starts[1].payload['conectorId'], 2);
+        expect(starts[1].payload['medidorInicialWh'], 2000);
+
+        viewModel.dispose();
+        await repositorio.fechar();
+      },
+    );
+
+    test('envia MeterValues com valores do conector ativo', () async {
+      final repositorio = _CarregadorRepositoryFalso()
+        ..respostas['BootNotification'] = <String, dynamic>{
+          'status': 'Accepted',
+          'interval': 120,
+        }
+        ..respostas['StartTransaction'] = <String, dynamic>{
+          'transactionId': 202,
+        };
+      final viewModel = CarregadorWidgetViewModel(
+        repository: repositorio,
+        idsConectoresConfigurados: const <int>[1, 2],
+      );
+
+      await viewModel.conectar(servidorTexto: 'ws://localhost:5001/OCPP/A');
+      viewModel.selecionarConector(2);
+      viewModel.atualizarMedidor('2500');
+      viewModel.atualizarPotencia('11000');
+      viewModel.atualizarSoc('55');
+      viewModel.atualizarTemperatura('37.5');
+      await viewModel.iniciarCarregamento(autorizarAntes: false);
+      repositorio.registros.clear();
+
+      viewModel.atualizarMedidor('2600');
+      await viewModel.enviarValoresMedidor();
+
+      final registro = repositorio.registros.single;
+      expect(registro.acao, 'MeterValues');
+      expect(registro.payload['conectorId'], 2);
+      expect(registro.payload['transacaoId'], 202);
+
+      final valores = registro.payload['valores'] as List<dynamic>;
+      expect(valores[0], containsPair('value', '2600'));
+      expect(valores[1], containsPair('value', '11000'));
+      expect(valores[2], containsPair('value', '55.0'));
+      expect(valores[3], containsPair('value', '37.5'));
+
+      viewModel.dispose();
+      await repositorio.fechar();
+    });
+
+    test('para um conector sem limpar transacao do outro', () async {
+      final repositorio = _CarregadorRepositoryFalso()
+        ..respostas['BootNotification'] = <String, dynamic>{
+          'status': 'Accepted',
+          'interval': 120,
+        };
+      final viewModel = CarregadorWidgetViewModel(
+        repository: repositorio,
+        idsConectoresConfigurados: const <int>[1, 2],
+      );
+
+      await viewModel.conectar(servidorTexto: 'ws://localhost:5001/OCPP/A');
+      repositorio.respostas['StartTransaction'] = <String, dynamic>{
+        'transactionId': 101,
+      };
+      await viewModel.iniciarCarregamento(autorizarAntes: false);
+
+      viewModel.selecionarConector(2);
+      repositorio.respostas['StartTransaction'] = <String, dynamic>{
+        'transactionId': 202,
+      };
+      await viewModel.iniciarCarregamento(autorizarAntes: false);
+
+      viewModel.selecionarConector(1);
+      await viewModel.pararCarregamento();
+
+      expect(viewModel.transacaoId.value, isNull);
+      expect(viewModel.estado.value, EstadoCarregador.disponivel);
+
+      viewModel.selecionarConector(2);
+      expect(viewModel.transacaoId.value, 202);
+      expect(viewModel.estado.value, EstadoCarregador.carregando);
+      expect(viewModel.statusConector.value, StatusConectorOcpp.charging);
+
+      final stops = repositorio.registros
+          .where((registro) => registro.acao == 'StopTransaction')
+          .toList(growable: false);
+      expect(stops, hasLength(1));
+      expect(stops.single.payload['transacaoId'], 101);
+
+      viewModel.dispose();
+      await repositorio.fechar();
+    });
+
+    test('mantem fluxo completo independente entre dois conectores', () async {
+      final repositorio = _CarregadorRepositoryFalso()
+        ..respostas['BootNotification'] = <String, dynamic>{
+          'status': 'Accepted',
+          'interval': 120,
+        };
+      final viewModel = CarregadorWidgetViewModel(
+        repository: repositorio,
+        idsConectoresConfigurados: const <int>[1, 2],
+      );
+
+      await viewModel.conectar(servidorTexto: 'ws://localhost:5001/OCPP/A');
+
+      viewModel.atualizarMedidor('1000');
+      viewModel.atualizarPotencia('7400');
+      viewModel.atualizarSoc('30');
+      viewModel.atualizarTemperatura('34');
+      repositorio.respostas['StartTransaction'] = <String, dynamic>{
+        'transactionId': 101,
+      };
+      await viewModel.iniciarCarregamento(autorizarAntes: false);
+
+      viewModel.selecionarConector(2);
+      viewModel.atualizarMedidor('2000');
+      viewModel.atualizarPotencia('22000');
+      viewModel.atualizarSoc('72.5');
+      viewModel.atualizarTemperatura('41.2');
+      repositorio.respostas['StartTransaction'] = <String, dynamic>{
+        'transactionId': 202,
+      };
+      await viewModel.iniciarCarregamento(autorizarAntes: false);
+
+      repositorio.registros.clear();
+
+      viewModel.selecionarConector(1);
+      viewModel.atualizarMedidor('1500');
+      await viewModel.enviarValoresMedidor();
+
+      viewModel.selecionarConector(2);
+      viewModel.atualizarMedidor('2600');
+      await viewModel.enviarValoresMedidor();
+
+      viewModel.selecionarConector(1);
+      await viewModel.pararCarregamento();
+
+      expect(viewModel.transacaoId.value, isNull);
+      expect(viewModel.estado.value, EstadoCarregador.disponivel);
+      expect(viewModel.statusConector.value, StatusConectorOcpp.available);
+
+      viewModel.selecionarConector(2);
+      expect(viewModel.transacaoId.value, 202);
+      expect(viewModel.estado.value, EstadoCarregador.carregando);
+      expect(viewModel.statusConector.value, StatusConectorOcpp.charging);
+      expect(viewModel.medidorWh.value, 2600);
+      expect(viewModel.potenciaW.value, 22000);
+      expect(viewModel.soc.value, 72.5);
+      expect(viewModel.temperaturaC.value, 41.2);
+
+      final meterValues = repositorio.registros
+          .where((registro) => registro.acao == 'MeterValues')
+          .toList(growable: false);
+      expect(meterValues, hasLength(3));
+      expect(meterValues[0].payload['conectorId'], 1);
+      expect(meterValues[0].payload['transacaoId'], 101);
+      expect(meterValues[1].payload['conectorId'], 2);
+      expect(meterValues[1].payload['transacaoId'], 202);
+      expect(meterValues[2].payload['conectorId'], 1);
+      expect(meterValues[2].payload['transacaoId'], 101);
+
+      final stops = repositorio.registros
+          .where((registro) => registro.acao == 'StopTransaction')
+          .toList(growable: false);
+      expect(stops, hasLength(1));
+      expect(stops.single.payload['transacaoId'], 101);
+
+      viewModel.dispose();
+      await repositorio.fechar();
+    });
+
     test('simula variacao de temperatura durante recarga', () async {
       final repositorio = _CarregadorRepositoryFalso()
         ..respostas['BootNotification'] = <String, dynamic>{
@@ -126,7 +385,213 @@ void main() {
       viewModel.dispose();
       await repositorio.fechar();
     });
+
+    test(
+      'evolui medidor SoC temperatura e tempo de forma isolada por conector',
+      () {
+        fakeAsync((async) {
+          var agora = DateTime(2026);
+          final repositorio = _CarregadorRepositoryFalso()
+            ..respostas['BootNotification'] = <String, dynamic>{
+              'status': 'Accepted',
+              'interval': 120,
+            };
+          final viewModel = CarregadorWidgetViewModel(
+            repository: repositorio,
+            idsConectoresConfigurados: const <int>[1, 2],
+            potenciaInicialW: 360000,
+            capacidadeBateriaInicialKwh: 10,
+            temperaturaInicialC: 30,
+            agora: () => agora,
+          );
+
+          _concluirNoFakeAsync(
+            async,
+            viewModel.conectar(servidorTexto: 'ws://localhost:5001/OCPP/A'),
+          );
+          repositorio.respostas['StartTransaction'] = <String, dynamic>{
+            'transactionId': 101,
+          };
+          _concluirNoFakeAsync(
+            async,
+            viewModel.iniciarCarregamento(autorizarAntes: false),
+          );
+
+          viewModel.selecionarConector(2);
+          viewModel.atualizarPotencia('720000');
+          repositorio.respostas['StartTransaction'] = <String, dynamic>{
+            'transactionId': 202,
+          };
+          _concluirNoFakeAsync(
+            async,
+            viewModel.iniciarCarregamento(autorizarAntes: false),
+          );
+
+          agora = agora.add(const Duration(seconds: 10));
+          async.elapse(const Duration(seconds: 10));
+          async.flushMicrotasks();
+
+          viewModel.selecionarConector(1);
+          expect(viewModel.medidorWh.value, greaterThanOrEqualTo(1000));
+          expect(viewModel.soc.value, greaterThan(30));
+          expect(viewModel.temperaturaC.value, greaterThan(30));
+          expect(
+            viewModel.tempoCarregamento.value,
+            greaterThanOrEqualTo(const Duration(seconds: 10)),
+          );
+          final medidorConector1 = viewModel.medidorWh.value;
+
+          viewModel.selecionarConector(2);
+          expect(viewModel.medidorWh.value, greaterThan(medidorConector1));
+          expect(viewModel.soc.value, greaterThan(30));
+          expect(viewModel.temperaturaC.value, greaterThan(30));
+          expect(
+            viewModel.tempoCarregamento.value,
+            greaterThanOrEqualTo(const Duration(seconds: 10)),
+          );
+
+          viewModel.dispose();
+          async.flushMicrotasks();
+        });
+      },
+    );
+
+    test('pausa um conector sem pausar temporizador do outro', () {
+      fakeAsync((async) {
+        var agora = DateTime(2026);
+        final repositorio = _CarregadorRepositoryFalso()
+          ..respostas['BootNotification'] = <String, dynamic>{
+            'status': 'Accepted',
+            'interval': 120,
+          };
+        final viewModel = CarregadorWidgetViewModel(
+          repository: repositorio,
+          idsConectoresConfigurados: const <int>[1, 2],
+          potenciaInicialW: 360000,
+          agora: () => agora,
+        );
+
+        _concluirNoFakeAsync(
+          async,
+          viewModel.conectar(servidorTexto: 'ws://localhost:5001/OCPP/A'),
+        );
+        repositorio.respostas['StartTransaction'] = <String, dynamic>{
+          'transactionId': 101,
+        };
+        _concluirNoFakeAsync(
+          async,
+          viewModel.iniciarCarregamento(autorizarAntes: false),
+        );
+
+        viewModel.selecionarConector(2);
+        repositorio.respostas['StartTransaction'] = <String, dynamic>{
+          'transactionId': 202,
+        };
+        _concluirNoFakeAsync(
+          async,
+          viewModel.iniciarCarregamento(autorizarAntes: false),
+        );
+
+        viewModel.selecionarConector(1);
+        _concluirNoFakeAsync(async, viewModel.pausarCarregamento());
+        repositorio.registros.clear();
+
+        agora = agora.add(const Duration(seconds: 10));
+        async.elapse(const Duration(seconds: 10));
+        async.flushMicrotasks();
+
+        final meterValues = repositorio.registros
+            .where((registro) => registro.acao == 'MeterValues')
+            .toList(growable: false);
+        expect(meterValues, hasLength(1));
+        expect(meterValues.single.payload['conectorId'], 2);
+
+        viewModel.selecionarConector(1);
+        expect(viewModel.estado.value, EstadoCarregador.pausado);
+
+        viewModel.selecionarConector(2);
+        expect(viewModel.estado.value, EstadoCarregador.carregando);
+        expect(viewModel.medidorWh.value, greaterThan(0));
+
+        viewModel.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('dispose cancela temporizadores de todos os conectores', () {
+      fakeAsync((async) {
+        var agora = DateTime(2026);
+        final repositorio = _CarregadorRepositoryFalso()
+          ..respostas['BootNotification'] = <String, dynamic>{
+            'status': 'Accepted',
+            'interval': 120,
+          };
+        final viewModel = CarregadorWidgetViewModel(
+          repository: repositorio,
+          idsConectoresConfigurados: const <int>[1, 2],
+          agora: () => agora,
+        );
+
+        _concluirNoFakeAsync(
+          async,
+          viewModel.conectar(servidorTexto: 'ws://localhost:5001/OCPP/A'),
+        );
+        repositorio.respostas['StartTransaction'] = <String, dynamic>{
+          'transactionId': 101,
+        };
+        _concluirNoFakeAsync(
+          async,
+          viewModel.iniciarCarregamento(autorizarAntes: false),
+        );
+
+        viewModel.selecionarConector(2);
+        repositorio.respostas['StartTransaction'] = <String, dynamic>{
+          'transactionId': 202,
+        };
+        _concluirNoFakeAsync(
+          async,
+          viewModel.iniciarCarregamento(autorizarAntes: false),
+        );
+
+        repositorio.registros.clear();
+        viewModel.dispose();
+        async.flushMicrotasks();
+        agora = agora.add(const Duration(seconds: 11));
+        async.elapse(const Duration(seconds: 11));
+        async.flushMicrotasks();
+
+        expect(
+          repositorio.registros.where(
+            (registro) => registro.acao == 'MeterValues',
+          ),
+          isEmpty,
+        );
+      });
+    });
   });
+}
+
+void _concluirNoFakeAsync(FakeAsync async, Future<void> future) {
+  var concluido = false;
+  Object? erro;
+  StackTrace? stackTrace;
+
+  future
+      .then((_) {
+        concluido = true;
+      })
+      .catchError((Object error, StackTrace stack) {
+        concluido = true;
+        erro = error;
+        stackTrace = stack;
+      });
+
+  async.flushMicrotasks();
+
+  if (erro != null) {
+    Error.throwWithStackTrace(erro!, stackTrace!);
+  }
+  expect(concluido, isTrue);
 }
 
 final class _RegistroOcpp {

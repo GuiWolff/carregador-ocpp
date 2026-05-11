@@ -19,12 +19,14 @@ class CarregadorWidget extends StatefulWidget {
     this.carregadorId,
     this.titulo = 'Carregador A',
     this.subtitulo = 'Ponto de recarga OCPP 1.6J',
+    this.conectoresConfigurados = const <ConectorCarregadorConfigurado>[],
   });
 
   final CarregadorWidgetViewModel? viewModel;
   final String? carregadorId;
   final String titulo;
   final String subtitulo;
+  final List<ConectorCarregadorConfigurado> conectoresConfigurados;
 
   @override
   State<CarregadorWidget> createState() => _CarregadorWidgetState();
@@ -210,6 +212,7 @@ class _CarregadorWidgetState extends State<CarregadorWidget> {
                 socFocus: _socFocus,
                 temperaturaFocus: _temperaturaFocus,
                 viewModel: _viewModel,
+                conectoresConfigurados: widget.conectoresConfigurados,
               ),
               const SizedBox(height: 18),
               _StatusManual(viewModel: _viewModel),
@@ -512,6 +515,7 @@ class _ParametrosCarregador extends StatelessWidget {
     required this.socFocus,
     required this.temperaturaFocus,
     required this.viewModel,
+    required this.conectoresConfigurados,
   });
 
   final TextEditingController servidorController;
@@ -529,6 +533,7 @@ class _ParametrosCarregador extends StatelessWidget {
   final FocusNode socFocus;
   final FocusNode temperaturaFocus;
   final CarregadorWidgetViewModel viewModel;
+  final List<ConectorCarregadorConfigurado> conectoresConfigurados;
 
   @override
   Widget build(BuildContext context) {
@@ -565,15 +570,21 @@ class _ParametrosCarregador extends StatelessWidget {
             ),
             SizedBox(
               width: larguraCampo,
-              child: _CampoCarregador(
-                campoKey: const Key('carregador_conector'),
-                controller: conectorController,
-                focusNode: conectorFocus,
-                label: 'Conector',
-                prefixIcon: Icons.cable,
-                keyboardType: TextInputType.number,
-                onChanged: viewModel.atualizarConectorId,
-              ),
+              child: conectoresConfigurados.isEmpty
+                  ? _CampoCarregador(
+                      campoKey: const Key('carregador_conector'),
+                      controller: conectorController,
+                      focusNode: conectorFocus,
+                      label: 'Conector',
+                      prefixIcon: Icons.cable,
+                      keyboardType: TextInputType.number,
+                      onChanged: viewModel.atualizarConectorId,
+                    )
+                  : _SeletorConectorConfigurado(
+                      conectores: conectoresConfigurados,
+                      conectorId: viewModel.conectorId.value,
+                      onChanged: viewModel.selecionarConector,
+                    ),
             ),
             SizedBox(
               width: larguraCampo,
@@ -630,6 +641,54 @@ class _ParametrosCarregador extends StatelessWidget {
   }
 }
 
+class _SeletorConectorConfigurado extends StatelessWidget {
+  const _SeletorConectorConfigurado({
+    required this.conectores,
+    required this.conectorId,
+    required this.onChanged,
+  });
+
+  final List<ConectorCarregadorConfigurado> conectores;
+  final int conectorId;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final valorInicial = conectores.any((conector) => conector.id == conectorId)
+        ? conectorId
+        : conectores.first.id;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const _CampoRotulo('Conector'),
+        CustomDropdown<int>(
+          campoKey: ValueKey<String>('carregador_conector_$valorInicial'),
+          valorInicial: valorInicial,
+          hintText: 'Conector',
+          prefixIcon: Icons.cable,
+          opcoes: conectores
+              .map((conector) => conector.id)
+              .toList(growable: false),
+          rotuloOpcao: (id) {
+            final conector = conectores.firstWhere(
+              (conector) => conector.id == id,
+            );
+            return 'Conector ${conector.id} - ${_rotuloTipo(conector.tipo)}';
+          },
+          onChanged: (id) {
+            if (id == null) {
+              return;
+            }
+
+            onChanged(id);
+          },
+        ),
+      ],
+    );
+  }
+}
+
 class _CampoCarregador extends StatelessWidget {
   const _CampoCarregador({
     required this.campoKey,
@@ -667,6 +726,14 @@ class _CampoCarregador extends StatelessWidget {
       ],
     );
   }
+}
+
+String _rotuloTipo(TipoConectorCarregador tipo) {
+  return switch (tipo) {
+    TipoConectorCarregador.ccs2 => 'CCS2',
+    TipoConectorCarregador.mennekesType2 => 'Mennekes Type 2',
+    TipoConectorCarregador.gbt => 'GB/T',
+  };
 }
 
 class _CampoRotulo extends StatelessWidget {

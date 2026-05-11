@@ -141,6 +141,7 @@ class _CarregadoresPageState extends State<CarregadoresPage> {
           carregadorId: configuracao.id,
           titulo: configuracao.id,
           subtitulo: _formatarSubtitulo(configuracao),
+          conectoresConfigurados: configuracao.conectores,
         ),
         acoes: <Widget>[
           BotaoSecundario(
@@ -650,23 +651,27 @@ class _CarregadorBotaoVisual extends StatelessWidget {
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final compacto = constraints.maxWidth < 620;
-                      final estadoVisual = _EstadoVisualCarregador(
-                        estado: estado,
+                      final estadoVisual = _criarEstadoVisualCarregador(
+                        item.viewModel.dadosDoConector(conectorAtivoId),
                         conectado: conectado,
                         ocupado: ocupado,
                         corEstado: corEstado,
-                        potenciaW: item.viewModel.potenciaW.value,
-                        energiaConsumidaKwh: item.viewModel.energiaFornecidaKwh,
-                        socPercentual: item.viewModel.soc.value,
-                        tempoCarregamento:
-                            item.viewModel.tempoCarregamento.value,
-                        tempoEstimado: item.viewModel.tempoRestante,
-                        temperaturaC: item.viewModel.temperaturaC.value,
                       );
+                      final estadosVisuaisConectores =
+                          <int, _EstadoVisualCarregador>{
+                            for (final conector in configuracao.conectores)
+                              conector.id: _criarEstadoVisualCarregador(
+                                item.viewModel.dadosDoConector(conector.id),
+                                conectado: conectado,
+                                ocupado: ocupado,
+                                corEstado: corEstado,
+                              ),
+                          };
                       final visualizacao = _CarregadorVisualizacao(
                         configuracao: configuracao,
                         compacto: compacto,
                         estadoVisual: estadoVisual,
+                        estadosVisuaisConectores: estadosVisuaisConectores,
                         conectorAtivoId: conectorAtivoId,
                         statusConectores: statusConectores,
                         onAlterarStatusConector: (conectorId, status) {
@@ -729,6 +734,7 @@ class _CarregadorVisualizacao extends StatelessWidget {
     required this.configuracao,
     required this.compacto,
     required this.estadoVisual,
+    required this.estadosVisuaisConectores,
     required this.conectorAtivoId,
     required this.statusConectores,
     required this.onAlterarStatusConector,
@@ -737,6 +743,7 @@ class _CarregadorVisualizacao extends StatelessWidget {
   final CarregadorConfigurado configuracao;
   final bool compacto;
   final _EstadoVisualCarregador estadoVisual;
+  final Map<int, _EstadoVisualCarregador> estadosVisuaisConectores;
   final int conectorAtivoId;
   final Map<int, StatusConectorOcpp> statusConectores;
   final void Function(int conectorId, StatusConectorOcpp status)
@@ -762,6 +769,7 @@ class _CarregadorVisualizacao extends StatelessWidget {
             carregadorId: configuracao.id,
             conectores: configuracao.conectores,
             estadoVisual: estadoVisual,
+            estadosVisuaisConectores: estadosVisuaisConectores,
             conectorAtivoId: conectorAtivoId,
             statusConectores: statusConectores,
             onAlterarStatusConector: onAlterarStatusConector,
@@ -1039,6 +1047,7 @@ class _ConectoresConfigurados extends StatelessWidget {
     required this.carregadorId,
     required this.conectores,
     required this.estadoVisual,
+    required this.estadosVisuaisConectores,
     required this.conectorAtivoId,
     required this.statusConectores,
     required this.onAlterarStatusConector,
@@ -1047,6 +1056,7 @@ class _ConectoresConfigurados extends StatelessWidget {
   final String carregadorId;
   final List<ConectorCarregadorConfigurado> conectores;
   final _EstadoVisualCarregador estadoVisual;
+  final Map<int, _EstadoVisualCarregador> estadosVisuaisConectores;
   final int conectorAtivoId;
   final Map<int, StatusConectorOcpp> statusConectores;
   final void Function(int conectorId, StatusConectorOcpp status)
@@ -1073,7 +1083,7 @@ class _ConectoresConfigurados extends StatelessWidget {
               conector: conectores.single,
               totalConectores: totalConectores,
               indice: 0,
-              estadoVisual: estadoVisual,
+              estadoVisual: _estadoVisualConector(conectores.single.id),
               status: _statusConector(conectores.single.id),
               selecionado: conectorAtivoId == conectores.single.id,
               onAlterarStatus: (status) =>
@@ -1102,7 +1112,9 @@ class _ConectoresConfigurados extends StatelessWidget {
                       conector: conectores[indice],
                       totalConectores: totalConectores,
                       indice: indice,
-                      estadoVisual: estadoVisual,
+                      estadoVisual: _estadoVisualConector(
+                        conectores[indice].id,
+                      ),
                       status: _statusConector(conectores[indice].id),
                       selecionado: conectorAtivoId == conectores[indice].id,
                       onAlterarStatus: (status) => onAlterarStatusConector(
@@ -1127,7 +1139,7 @@ class _ConectoresConfigurados extends StatelessWidget {
                 conector: conectores[indice],
                 totalConectores: totalConectores,
                 indice: indice,
-                estadoVisual: estadoVisual,
+                estadoVisual: _estadoVisualConector(conectores[indice].id),
                 status: _statusConector(conectores[indice].id),
                 selecionado: conectorAtivoId == conectores[indice].id,
                 onAlterarStatus: (status) =>
@@ -1141,6 +1153,10 @@ class _ConectoresConfigurados extends StatelessWidget {
 
   StatusConectorOcpp _statusConector(int conectorId) {
     return statusConectores[conectorId] ?? StatusConectorOcpp.available;
+  }
+
+  _EstadoVisualCarregador _estadoVisualConector(int conectorId) {
+    return estadosVisuaisConectores[conectorId] ?? estadoVisual;
   }
 }
 
@@ -1183,6 +1199,7 @@ class _ConectorConfiguradoChip extends StatelessWidget {
       habilitado: !estadoVisual.ocupado,
       onChanged: onAlterarStatus,
     );
+    final borda = Border.all(color: cores.primary, width: 1.4);
 
     if (_temConectorCentral(totalConectores)) {
       return SizedBox(
@@ -1193,6 +1210,7 @@ class _ConectorConfiguradoChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: cores.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(24),
+            border: borda,
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -1279,6 +1297,7 @@ class _ConectorConfiguradoChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: cores.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(18),
+            border: borda,
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(10, 16, 10, 12),
@@ -1358,6 +1377,7 @@ class _ConectorConfiguradoChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: cores.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
+        border: borda,
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1508,6 +1528,26 @@ class _EstadoVisualCarregador {
   String get rotuloTemperatura {
     return '${temperaturaC.toStringAsFixed(1)} C';
   }
+}
+
+_EstadoVisualCarregador _criarEstadoVisualCarregador(
+  DadosOperacionaisConectorCarregador dados, {
+  required bool conectado,
+  required bool ocupado,
+  required Color corEstado,
+}) {
+  return _EstadoVisualCarregador(
+    estado: dados.estado,
+    conectado: conectado,
+    ocupado: ocupado,
+    corEstado: corEstado,
+    potenciaW: dados.potenciaW,
+    energiaConsumidaKwh: dados.energiaFornecidaKwh,
+    socPercentual: dados.soc,
+    tempoCarregamento: dados.tempoCarregamento,
+    tempoEstimado: dados.tempoRestante,
+    temperaturaC: dados.temperaturaC,
+  );
 }
 
 String _formatarDuracaoHhMmSs(Duration duracao) {

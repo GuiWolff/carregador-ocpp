@@ -43,12 +43,20 @@ class CarregadorWidgetViewModel {
     Uri? servidorInicial,
     String idTagInicial = 'TAG-001',
     int conectorIdInicial = 1,
+    Iterable<int>? idsConectoresConfigurados,
     int medidorInicialWh = 0,
     double potenciaInicialW = 7400,
     double socInicial = 30,
     double temperaturaInicialC = 34,
     double capacidadeBateriaInicialKwh = 60,
+    DateTime Function()? agora,
   }) : _repository = repository ?? CarregadorRepositoryWebSocket(),
+       _medidorInicialPadraoWh = medidorInicialWh,
+       _potenciaInicialPadraoW = potenciaInicialW,
+       _socInicialPadrao = socInicial,
+       _temperaturaInicialPadraoC = temperaturaInicialC,
+       _capacidadeBateriaInicialPadraoKwh = capacidadeBateriaInicialKwh,
+       _agora = agora ?? DateTime.now,
        servidor = Rx<Uri>(
          servidorInicial ?? Uri.parse('ws://localhost:5001/OCPP/A'),
        ),
@@ -62,14 +70,29 @@ class CarregadorWidgetViewModel {
        capacidadeBateriaKwh = Rx<double>(capacidadeBateriaInicialKwh),
        tempoCarregamento = Rx<Duration>(Duration.zero),
        statusConectores = Rx<Map<int, StatusConectorOcpp>>(
-         Map<int, StatusConectorOcpp>.unmodifiable(<int, StatusConectorOcpp>{
-           conectorIdInicial: StatusConectorOcpp.available,
-         }),
+         _criarStatusConectoresIniciais(
+           idsConectoresConfigurados,
+           conectorIdInicial,
+         ),
        ) {
+    _inicializarEstadosConectores(
+      idsConectoresConfigurados: idsConectoresConfigurados,
+      conectorIdInicial: conectorIdInicial,
+    );
+    _sincronizarRxComEstado(
+      conectorIdInicial,
+      _obterEstadoConector(conectorIdInicial),
+    );
     _assinarMensagens();
   }
 
   final CarregadorRepository _repository;
+  final int _medidorInicialPadraoWh;
+  final double _potenciaInicialPadraoW;
+  final double _socInicialPadrao;
+  final double _temperaturaInicialPadraoC;
+  final double _capacidadeBateriaInicialPadraoKwh;
+  final DateTime Function() _agora;
 
   final Rx<Uri> servidor;
   final Rx<String> idTag;
@@ -95,14 +118,10 @@ class CarregadorWidgetViewModel {
   StreamSubscription<MensagemOcpp>? _assinaturaMensagens;
   StreamSubscription<ChamadaOcpp>? _assinaturaChamadas;
   Timer? _heartbeatTimer;
-  Timer? _medidorTimer;
-  Timer? _tempoCarregamentoTimer;
-  DateTime? _ultimaAtualizacaoMedidor;
-  DateTime? _inicioPeriodoCarregamento;
-  Duration _tempoCarregamentoAcumulado = Duration.zero;
+  final Map<int, _EstadoOperacionalConector> _estadosPorConector =
+      <int, _EstadoOperacionalConector>{};
   var _conectorZeroEnviado = false;
   var _descartado = false;
-  var _enviandoValores = false;
 
   double get energiaFornecidaKwh {
     final energiaWh = max(0, medidorWh.value - medidorInicioTransacaoWh.value);
@@ -125,8 +144,205 @@ class CarregadorWidgetViewModel {
     return estado.value == EstadoCarregador.carregando;
   }
 
+  DadosOperacionaisConectorCarregador dadosDoConector(int id) {
+    if (id == conectorId.value) {
+      return DadosOperacionaisConectorCarregador(
+        medidorWh: medidorWh.value,
+        medidorInicioTransacaoWh: medidorInicioTransacaoWh.value,
+        potenciaW: potenciaW.value,
+        soc: soc.value,
+        temperaturaC: temperaturaC.value,
+        capacidadeBateriaKwh: capacidadeBateriaKwh.value,
+        tempoCarregamento: tempoCarregamento.value,
+        transacaoId: transacaoId.value,
+        statusConector: statusConector.value,
+        estado: estado.value,
+      );
+    }
+
+    final estadoConector = _obterEstadoConector(id);
+
+    return DadosOperacionaisConectorCarregador(
+      medidorWh: estadoConector.medidorWh,
+      medidorInicioTransacaoWh: estadoConector.medidorInicioTransacaoWh,
+      potenciaW: estadoConector.potenciaW,
+      soc: estadoConector.soc,
+      temperaturaC: estadoConector.temperaturaC,
+      capacidadeBateriaKwh: estadoConector.capacidadeBateriaKwh,
+      tempoCarregamento: estadoConector.tempoCarregamento,
+      transacaoId: estadoConector.transacaoId,
+      statusConector: estadoConector.statusConector,
+      estado: estadoConector.estado,
+    );
+  }
+
   StatusConectorOcpp statusDoConector(int id) {
     return statusConectores.value[id] ?? StatusConectorOcpp.available;
+  }
+
+  void _inicializarEstadosConectores({
+    required Iterable<int>? idsConectoresConfigurados,
+    required int conectorIdInicial,
+  }) {
+    for (final id in _normalizarIdsConectores(
+      idsConectoresConfigurados,
+      conectorIdInicial,
+    )) {
+      _estadosPorConector.putIfAbsent(id, _criarEstadoPadrao);
+    }
+  }
+
+  _EstadoOperacionalConector _criarEstadoPadrao() {
+    return _EstadoOperacionalConector(
+      medidorWh: _medidorInicialPadraoWh,
+      medidorInicioTransacaoWh: _medidorInicialPadraoWh,
+      potenciaW: _potenciaInicialPadraoW,
+      soc: _socInicialPadrao,
+      temperaturaC: _temperaturaInicialPadraoC,
+      capacidadeBateriaKwh: _capacidadeBateriaInicialPadraoKwh,
+      tempoCarregamento: Duration.zero,
+      transacaoId: null,
+      statusConector: StatusConectorOcpp.available,
+      estado: conectado.value
+          ? EstadoCarregador.disponivel
+          : EstadoCarregador.desconectado,
+    );
+  }
+
+  _EstadoOperacionalConector _estadoConectorAtivo() {
+    return _obterEstadoConector(conectorId.value);
+  }
+
+  _EstadoOperacionalConector _obterEstadoConector(int id) {
+    return _estadosPorConector.putIfAbsent(id, _criarEstadoPadrao);
+  }
+
+  void _persistirRxNoEstadoAtivo() {
+    final estadoConector = _estadoConectorAtivo()
+      ..medidorWh = medidorWh.value
+      ..medidorInicioTransacaoWh = medidorInicioTransacaoWh.value
+      ..potenciaW = potenciaW.value
+      ..soc = soc.value
+      ..temperaturaC = temperaturaC.value
+      ..capacidadeBateriaKwh = capacidadeBateriaKwh.value
+      ..tempoCarregamento = tempoCarregamento.value
+      ..transacaoId = transacaoId.value
+      ..statusConector = statusConector.value
+      ..estado = estado.value;
+
+    _publicarStatusConector(conectorId.value, estadoConector.statusConector);
+  }
+
+  void _sincronizarRxComEstado(
+    int id,
+    _EstadoOperacionalConector estadoConector,
+  ) {
+    medidorWh.value = estadoConector.medidorWh;
+    medidorInicioTransacaoWh.value = estadoConector.medidorInicioTransacaoWh;
+    potenciaW.value = estadoConector.potenciaW;
+    soc.value = estadoConector.soc;
+    temperaturaC.value = estadoConector.temperaturaC;
+    capacidadeBateriaKwh.value = estadoConector.capacidadeBateriaKwh;
+    tempoCarregamento.value = estadoConector.tempoCarregamento;
+    transacaoId.value = estadoConector.transacaoId;
+    statusConector.value = estadoConector.statusConector;
+    estado.value = estadoConector.estado;
+    _publicarStatusConector(id, estadoConector.statusConector);
+  }
+
+  void _publicarStatusConector(int id, StatusConectorOcpp status) {
+    if (id < 1) {
+      return;
+    }
+
+    final statusAtuais = statusConectores.value;
+    if (statusAtuais.containsKey(id) && statusAtuais[id] == status) {
+      return;
+    }
+
+    statusConectores.value = Map<int, StatusConectorOcpp>.unmodifiable(
+      <int, StatusConectorOcpp>{...statusAtuais, id: status},
+    );
+  }
+
+  void _atualizarMedidorAtivo(int valor) {
+    _atualizarMedidorDoConector(conectorId.value, valor);
+  }
+
+  void _atualizarMedidorDoConector(int id, int valor) {
+    _obterEstadoConector(id).medidorWh = valor;
+    if (id == conectorId.value) {
+      medidorWh.value = valor;
+    }
+  }
+
+  void _atualizarMedidorInicioTransacaoDoConector(int id, int valor) {
+    _obterEstadoConector(id).medidorInicioTransacaoWh = valor;
+    if (id == conectorId.value) {
+      medidorInicioTransacaoWh.value = valor;
+    }
+  }
+
+  void _atualizarPotenciaAtiva(double valor) {
+    _atualizarPotenciaDoConector(conectorId.value, valor);
+  }
+
+  void _atualizarPotenciaDoConector(int id, double valor) {
+    _obterEstadoConector(id).potenciaW = valor;
+    if (id == conectorId.value) {
+      potenciaW.value = valor;
+    }
+  }
+
+  void _atualizarSocAtivo(double valor) {
+    _atualizarSocDoConector(conectorId.value, valor);
+  }
+
+  void _atualizarSocDoConector(int id, double valor) {
+    _obterEstadoConector(id).soc = valor;
+    if (id == conectorId.value) {
+      soc.value = valor;
+    }
+  }
+
+  void _atualizarTemperaturaAtiva(double valor) {
+    _atualizarTemperaturaDoConector(conectorId.value, valor);
+  }
+
+  void _atualizarTemperaturaDoConector(int id, double valor) {
+    _obterEstadoConector(id).temperaturaC = valor;
+    if (id == conectorId.value) {
+      temperaturaC.value = valor;
+    }
+  }
+
+  void _atualizarTempoCarregamentoDoConector(int id, Duration valor) {
+    _obterEstadoConector(id).tempoCarregamento = valor;
+    if (id == conectorId.value) {
+      tempoCarregamento.value = valor;
+    }
+  }
+
+  void _atualizarTransacaoAtiva(int? valor) {
+    _atualizarTransacaoDoConector(conectorId.value, valor);
+  }
+
+  void _atualizarTransacaoDoConector(int id, int? valor) {
+    _obterEstadoConector(id).transacaoId = valor;
+    if (id == conectorId.value) {
+      transacaoId.value = valor;
+    }
+  }
+
+  void _atualizarEstadoAtivo(EstadoCarregador valor) {
+    _atualizarEstadoDoConector(conectorId.value, valor);
+  }
+
+  void _atualizarEstadoDoConector(int id, EstadoCarregador valor) {
+    _obterEstadoConector(id).estado = valor;
+    if (id == conectorId.value) {
+      estado.value = valor;
+    }
   }
 
   Future<void> conectar({String? servidorTexto}) {
@@ -139,8 +355,8 @@ class CarregadorWidgetViewModel {
       _reiniciarTempoCarregamento();
       await _repository.desconectar();
       conectado.value = false;
-      transacaoId.value = null;
-      estado.value = EstadoCarregador.desconectado;
+      _atualizarTransacaoAtiva(null);
+      _atualizarEstadoAtivo(EstadoCarregador.desconectado);
       _aplicarStatusConector(conectorId.value, StatusConectorOcpp.unavailable);
       _registrarEvento('WebSocket desconectado');
     });
@@ -158,69 +374,80 @@ class CarregadorWidgetViewModel {
         await _conectarInterno();
       }
 
-      estado.value = EstadoCarregador.preparando;
-      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.preparing);
-      await enviarStatusAtual();
+      final idConector = conectorId.value;
+      final estadoConector = _obterEstadoConector(idConector);
+      final medidorInicialWh = estadoConector.medidorWh;
+      final tag = idTag.value;
+
+      _atualizarEstadoDoConector(idConector, EstadoCarregador.preparando);
+      _aplicarStatusConector(idConector, StatusConectorOcpp.preparing);
+      await _enviarStatusAtualDoConector(idConector);
 
       if (autorizarAntes) {
         await _autorizarIdTag();
       }
 
       final resposta = await _repository.iniciarTransacao(
-        conectorId: conectorId.value,
-        idTag: idTag.value,
-        medidorInicialWh: medidorWh.value,
+        conectorId: idConector,
+        idTag: tag,
+        medidorInicialWh: medidorInicialWh,
       );
 
-      transacaoId.value = _lerInteiroOpcional(resposta['transactionId']);
-      medidorInicioTransacaoWh.value = medidorWh.value;
-      _reiniciarTempoCarregamento();
-      estado.value = EstadoCarregador.carregando;
-      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.charging);
-      _ultimaAtualizacaoMedidor = DateTime.now();
-      _iniciarTempoCarregamento();
-      _iniciarEnvioPeriodicoValores();
+      final idTransacao = _lerInteiroOpcional(resposta['transactionId']);
+      _atualizarTransacaoDoConector(idConector, idTransacao);
+      _atualizarMedidorInicioTransacaoDoConector(idConector, medidorInicialWh);
+      _reiniciarTempoCarregamentoDoConector(idConector);
+      _atualizarEstadoDoConector(idConector, EstadoCarregador.carregando);
+      _aplicarStatusConector(idConector, StatusConectorOcpp.charging);
+      _obterEstadoConector(idConector).ultimaAtualizacaoMedidor = _agora();
+      _iniciarTempoCarregamentoDoConector(idConector);
+      _iniciarEnvioPeriodicoValores(idConector: idConector);
 
       _registrarEvento(
         'Transacao iniciada'
-        '${transacaoId.value == null ? '' : ' #${transacaoId.value}'}',
+        '${idTransacao == null ? '' : ' #$idTransacao'}',
       );
 
-      await enviarStatusAtual();
-      await enviarValoresMedidor();
+      await _enviarStatusAtualDoConector(idConector);
+      await _enviarValoresMedidorInterno(idConector: idConector);
     });
   }
 
   Future<void> pausarCarregamento() {
     return _executar(() async {
-      if (!conectado.value || estado.value != EstadoCarregador.carregando) {
+      final idConector = conectorId.value;
+      final estadoConector = _obterEstadoConector(idConector);
+      if (!conectado.value ||
+          estadoConector.estado != EstadoCarregador.carregando) {
         return;
       }
 
-      _medidorTimer?.cancel();
-      _medidorTimer = null;
-      _acumularTempoCarregamento();
-      _pararTimerTempoCarregamento();
-      estado.value = EstadoCarregador.pausado;
-      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.suspendedEv);
+      _pararEnvioPeriodicoValoresDoConector(idConector);
+      _acumularTempoCarregamentoDoConector(idConector);
+      _pararTimerTempoCarregamentoDoConector(idConector);
+      _atualizarEstadoDoConector(idConector, EstadoCarregador.pausado);
+      _aplicarStatusConector(idConector, StatusConectorOcpp.suspendedEv);
       _registrarEvento('Carregamento pausado');
-      await enviarStatusAtual();
+      await _enviarStatusAtualDoConector(idConector);
     });
   }
 
   Future<void> retomarCarregamento() {
     return _executar(() async {
-      if (!conectado.value || estado.value != EstadoCarregador.pausado) {
+      final idConector = conectorId.value;
+      final estadoConector = _obterEstadoConector(idConector);
+      if (!conectado.value ||
+          estadoConector.estado != EstadoCarregador.pausado) {
         return;
       }
 
-      estado.value = EstadoCarregador.carregando;
-      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.charging);
-      _ultimaAtualizacaoMedidor = DateTime.now();
-      _iniciarTempoCarregamento();
-      _iniciarEnvioPeriodicoValores();
+      _atualizarEstadoDoConector(idConector, EstadoCarregador.carregando);
+      _aplicarStatusConector(idConector, StatusConectorOcpp.charging);
+      estadoConector.ultimaAtualizacaoMedidor = _agora();
+      _iniciarTempoCarregamentoDoConector(idConector);
+      _iniciarEnvioPeriodicoValores(idConector: idConector);
       _registrarEvento('Carregamento retomado');
-      await enviarStatusAtual();
+      await _enviarStatusAtualDoConector(idConector);
     });
   }
 
@@ -232,32 +459,36 @@ class CarregadorWidgetViewModel {
         return;
       }
 
-      _medidorTimer?.cancel();
-      _medidorTimer = null;
-      _incrementarMedidorPorTempo();
-      _atualizarTempoCarregamento();
-      _pararTimerTempoCarregamento();
-      estado.value = EstadoCarregador.finalizando;
-      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.finishing);
-      await enviarStatusAtual();
+      final idConector = conectorId.value;
+      final estadoConector = _obterEstadoConector(idConector);
+      _pararEnvioPeriodicoValoresDoConector(idConector);
+      _incrementarMedidorPorTempoDoConector(idConector);
+      _atualizarTempoCarregamentoDoConectorAtual(idConector);
+      _pararTimerTempoCarregamentoDoConector(idConector);
+      _atualizarEstadoDoConector(idConector, EstadoCarregador.finalizando);
+      _aplicarStatusConector(idConector, StatusConectorOcpp.finishing);
+      await _enviarStatusAtualDoConector(idConector);
 
-      final id = transacaoId.value;
+      final id = estadoConector.transacaoId;
       if (id != null) {
-        await enviarValoresMedidor();
+        await _enviarValoresMedidorInterno(idConector: idConector);
         await _repository.finalizarTransacao(
           transacaoId: id,
-          medidorFinalWh: medidorWh.value,
+          medidorFinalWh: estadoConector.medidorWh,
           idTag: idTag.value,
           motivo: motivo,
         );
       }
 
-      transacaoId.value = null;
-      medidorInicioTransacaoWh.value = medidorWh.value;
-      estado.value = EstadoCarregador.disponivel;
-      _aplicarStatusConector(conectorId.value, StatusConectorOcpp.available);
+      _atualizarTransacaoDoConector(idConector, null);
+      _atualizarMedidorInicioTransacaoDoConector(
+        idConector,
+        estadoConector.medidorWh,
+      );
+      _atualizarEstadoDoConector(idConector, EstadoCarregador.disponivel);
+      _aplicarStatusConector(idConector, StatusConectorOcpp.available);
       _registrarEvento('Transacao finalizada');
-      await enviarStatusAtual();
+      await _enviarStatusAtualDoConector(idConector);
     });
   }
 
@@ -270,34 +501,18 @@ class CarregadorWidgetViewModel {
 
   Future<void> enviarStatusAtual() {
     return _executarSemOcupacao(() async {
-      if (!conectado.value) {
-        return;
-      }
-
-      if (!_conectorZeroEnviado) {
-        await _repository.enviarStatusNotification(
-          conectorId: 0,
-          status: StatusConectorOcpp.available,
-        );
-        _conectorZeroEnviado = true;
-      }
-
-      await _repository.enviarStatusNotification(
-        conectorId: conectorId.value,
-        status: statusConector.value,
-        data: DateTime.now(),
-      );
-      _registrarEvento('Status enviado: ${statusConector.value.valor}');
+      await _enviarStatusAtualDoConector(conectorId.value);
     });
   }
 
   Future<void> enviarValoresMedidor({bool incrementarAntes = false}) {
     return _executarSemOcupacao(() async {
+      final idConector = conectorId.value;
       if (incrementarAntes) {
-        _incrementarMedidorPorTempo();
+        _incrementarMedidorPorTempoDoConector(idConector);
       }
 
-      await _enviarValoresMedidorInterno();
+      await _enviarValoresMedidorInterno(idConector: idConector);
     });
   }
 
@@ -309,7 +524,7 @@ class CarregadorWidgetViewModel {
     return _executar(() async {
       selecionarConector(id);
       _aplicarStatusConector(id, status);
-      estado.value = _estadoPorStatus(status);
+      _atualizarEstadoAtivo(_estadoPorStatus(status));
       await enviarStatusAtual();
     });
   }
@@ -319,8 +534,19 @@ class CarregadorWidgetViewModel {
       return;
     }
 
+    _persistirRxNoEstadoAtivo();
     conectorId.value = id;
-    statusConector.value = statusDoConector(id);
+    _sincronizarRxComEstado(id, _obterEstadoConector(id));
+  }
+
+  void _selecionarConectorPorTransacao(int idTransacao) {
+    for (final MapEntry<int, _EstadoOperacionalConector> entry
+        in _estadosPorConector.entries) {
+      if (entry.value.transacaoId == idTransacao) {
+        selecionarConector(entry.key);
+        return;
+      }
+    }
   }
 
   void atualizarIdTag(String valor) {
@@ -342,7 +568,7 @@ class CarregadorWidgetViewModel {
       return;
     }
 
-    potenciaW.value = parsed;
+    _atualizarPotenciaAtiva(parsed);
   }
 
   void atualizarMedidor(String valor) {
@@ -351,7 +577,7 @@ class CarregadorWidgetViewModel {
       return;
     }
 
-    medidorWh.value = parsed;
+    _atualizarMedidorAtivo(parsed);
   }
 
   void atualizarSoc(String valor) {
@@ -360,7 +586,7 @@ class CarregadorWidgetViewModel {
       return;
     }
 
-    soc.value = parsed.clamp(0, 100);
+    _atualizarSocAtivo(parsed.clamp(0, 100).toDouble());
   }
 
   void atualizarTemperatura(String valor) {
@@ -369,7 +595,7 @@ class CarregadorWidgetViewModel {
       return;
     }
 
-    temperaturaC.value = parsed;
+    _atualizarTemperaturaAtiva(parsed);
   }
 
   void dispose() {
@@ -406,12 +632,12 @@ class CarregadorWidgetViewModel {
 
   Future<void> _conectarInterno({String? servidorTexto}) async {
     servidor.value = _lerServidor(servidorTexto ?? servidor.value.toString());
-    estado.value = EstadoCarregador.conectando;
+    _atualizarEstadoAtivo(EstadoCarregador.conectando);
     _conectorZeroEnviado = false;
 
     await _repository.conectar(servidor.value);
     conectado.value = true;
-    estado.value = EstadoCarregador.disponivel;
+    _atualizarEstadoAtivo(EstadoCarregador.disponivel);
     _aplicarStatusConector(conectorId.value, StatusConectorOcpp.available);
     _registrarEvento('WebSocket conectado em ${servidor.value}');
 
@@ -454,8 +680,11 @@ class CarregadorWidgetViewModel {
           await desconectar();
         case 'RemoteStopTransaction':
           final id = _lerInteiroOpcional(chamada.payload['transactionId']);
-          if (id != null) {
-            transacaoId.value = id;
+          final connector = _lerInteiroOpcional(chamada.payload['connectorId']);
+          if (connector != null) {
+            selecionarConector(connector);
+          } else if (id != null) {
+            _selecionarConectorPorTransacao(id);
           }
           await _repository.responderChamadaBackend(
             chamada,
@@ -549,10 +778,11 @@ class CarregadorWidgetViewModel {
       return;
     }
 
-    statusConector.value = status;
-    statusConectores.value = Map<int, StatusConectorOcpp>.unmodifiable(
-      <int, StatusConectorOcpp>{...statusConectores.value, id: status},
-    );
+    _obterEstadoConector(id).statusConector = status;
+    if (id == conectorId.value) {
+      statusConector.value = status;
+    }
+    _publicarStatusConector(id, status);
   }
 
   Future<void> _autorizarIdTag() async {
@@ -571,46 +801,74 @@ class CarregadorWidgetViewModel {
     _registrarEvento('Tag autorizada: ${idTag.value}');
   }
 
-  Future<void> _enviarValoresMedidorInterno() async {
-    if (!conectado.value || _enviandoValores) {
+  Future<void> _enviarStatusAtualDoConector(int idConector) async {
+    if (!conectado.value) {
       return;
     }
 
-    _enviandoValores = true;
+    if (!_conectorZeroEnviado) {
+      await _repository.enviarStatusNotification(
+        conectorId: 0,
+        status: StatusConectorOcpp.available,
+      );
+      _conectorZeroEnviado = true;
+    }
+
+    final estadoConector = _obterEstadoConector(idConector);
+    await _repository.enviarStatusNotification(
+      conectorId: idConector,
+      status: estadoConector.statusConector,
+      data: _agora(),
+    );
+    _registrarEvento('Status enviado: ${estadoConector.statusConector.valor}');
+  }
+
+  Future<void> _enviarValoresMedidorInterno({int? idConector}) async {
+    if (!conectado.value) {
+      return;
+    }
+
+    final id = idConector ?? conectorId.value;
+    final estadoConector = _obterEstadoConector(id);
+    if (estadoConector.enviandoValores) {
+      return;
+    }
+
+    estadoConector.enviandoValores = true;
     try {
       await _repository.enviarValoresMedidor(
-        conectorId: conectorId.value,
-        transacaoId: transacaoId.value,
+        conectorId: id,
+        transacaoId: estadoConector.transacaoId,
         valores: <ValorMedidoOcpp>[
           ValorMedidoOcpp(
-            valor: medidorWh.value.toString(),
+            valor: estadoConector.medidorWh.toString(),
             contexto: ContextoMedicaoOcpp.samplePeriodic,
             mensurando: MensurandoOcpp.energyActiveImportRegister,
             unidade: UnidadeMedicaoOcpp.wattHora,
           ),
           ValorMedidoOcpp(
-            valor: potenciaW.value.round().toString(),
+            valor: estadoConector.potenciaW.round().toString(),
             contexto: ContextoMedicaoOcpp.samplePeriodic,
             mensurando: MensurandoOcpp.powerActiveImport,
             unidade: UnidadeMedicaoOcpp.watt,
           ),
           ValorMedidoOcpp(
-            valor: soc.value.toStringAsFixed(1),
+            valor: estadoConector.soc.toStringAsFixed(1),
             contexto: ContextoMedicaoOcpp.samplePeriodic,
             mensurando: MensurandoOcpp.soc,
             unidade: UnidadeMedicaoOcpp.percentual,
           ),
           ValorMedidoOcpp(
-            valor: temperaturaC.value.toStringAsFixed(1),
+            valor: estadoConector.temperaturaC.toStringAsFixed(1),
             contexto: ContextoMedicaoOcpp.samplePeriodic,
             mensurando: MensurandoOcpp.temperature,
             unidade: UnidadeMedicaoOcpp.celcius,
           ),
         ],
       );
-      _registrarEvento('MeterValues enviado: ${medidorWh.value} Wh');
+      _registrarEvento('MeterValues enviado: ${estadoConector.medidorWh} Wh');
     } finally {
-      _enviandoValores = false;
+      estadoConector.enviandoValores = false;
     }
   }
 
@@ -654,39 +912,61 @@ class CarregadorWidgetViewModel {
     );
   }
 
-  void _iniciarEnvioPeriodicoValores() {
-    _medidorTimer?.cancel();
-    _medidorTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
-      _incrementarMedidorPorTempo();
-      await _enviarValoresMedidorInterno();
+  void _iniciarEnvioPeriodicoValores({int? idConector}) {
+    final id = idConector ?? conectorId.value;
+    final estadoConector = _obterEstadoConector(id);
+    estadoConector.medidorTimer?.cancel();
+    estadoConector.medidorTimer = Timer.periodic(const Duration(seconds: 10), (
+      _,
+    ) async {
+      _incrementarMedidorPorTempoDoConector(id);
+      await _enviarValoresMedidorInterno(idConector: id);
     });
   }
 
-  void _incrementarMedidorPorTempo() {
-    final agora = DateTime.now();
-    final ultimaAtualizacao = _ultimaAtualizacaoMedidor ?? agora;
-    _ultimaAtualizacaoMedidor = agora;
+  void _pararEnvioPeriodicoValoresDoConector(int idConector) {
+    final estadoConector = _obterEstadoConector(idConector);
+    estadoConector.medidorTimer?.cancel();
+    estadoConector.medidorTimer = null;
+  }
+
+  void _incrementarMedidorPorTempoDoConector(int idConector) {
+    final agora = _agora();
+    final estadoConector = _obterEstadoConector(idConector);
+    final ultimaAtualizacao = estadoConector.ultimaAtualizacaoMedidor ?? agora;
+    estadoConector.ultimaAtualizacaoMedidor = agora;
 
     final horas =
         agora.difference(ultimaAtualizacao).inMilliseconds /
         Duration.millisecondsPerHour;
-    if (horas <= 0 || potenciaW.value <= 0) {
+    if (horas <= 0 || estadoConector.potenciaW <= 0) {
       return;
     }
 
-    final incrementoWh = max(1, (potenciaW.value * horas).round());
-    medidorWh.value = medidorWh.value + incrementoWh;
+    final incrementoWh = max(1, (estadoConector.potenciaW * horas).round());
+    _atualizarMedidorDoConector(
+      idConector,
+      estadoConector.medidorWh + incrementoWh,
+    );
 
-    final capacidadeWh = capacidadeBateriaKwh.value * 1000;
+    final capacidadeWh = estadoConector.capacidadeBateriaKwh * 1000;
     if (capacidadeWh > 0) {
       final incrementoSoc = (incrementoWh / capacidadeWh) * 100;
-      soc.value = min(100, soc.value + incrementoSoc);
+      _atualizarSocDoConector(
+        idConector,
+        min(100, estadoConector.soc + incrementoSoc).toDouble(),
+      );
     }
 
-    _atualizarTemperaturaSimulada(horas: horas, incrementoWh: incrementoWh);
+    _atualizarTemperaturaSimulada(
+      idConector: idConector,
+      horas: horas,
+      incrementoWh: incrementoWh,
+    );
   }
 
   void _atualizarTemperaturaSimulada({
+    required int idConector,
     required double horas,
     required int incrementoWh,
   }) {
@@ -694,23 +974,29 @@ class CarregadorWidgetViewModel {
       return;
     }
 
-    final potenciaKw = potenciaW.value / 1000;
-    final socNormalizado = (soc.value / 100).clamp(0.0, 1.0);
+    final estadoConector = _obterEstadoConector(idConector);
+    final potenciaKw = estadoConector.potenciaW / 1000;
+    final socNormalizado = (estadoConector.soc / 100).clamp(0.0, 1.0);
     final ciclosDezSegundos = max(1.0, horas * 360);
     final alvoTermico =
         _temperaturaAmbienteSimuladaC +
         min(12.0, potenciaKw * 0.85) +
         (socNormalizado * 3.5);
-    final oscilacaoOperacional = sin((medidorWh.value + incrementoWh) / 260);
+    final oscilacaoOperacional = sin(
+      (estadoConector.medidorWh + incrementoWh) / 260,
+    );
     final alvoComOscilacao = alvoTermico + (oscilacaoOperacional * 0.35);
     final fatorAproximacao = (0.08 * ciclosDezSegundos).clamp(0.0, 0.28);
     final novaTemperatura =
-        temperaturaC.value +
-        ((alvoComOscilacao - temperaturaC.value) * fatorAproximacao);
+        estadoConector.temperaturaC +
+        ((alvoComOscilacao - estadoConector.temperaturaC) * fatorAproximacao);
 
-    temperaturaC.value = novaTemperatura
-        .clamp(_temperaturaMinimaSimuladaC, _temperaturaMaximaSimuladaC)
-        .toDouble();
+    _atualizarTemperaturaDoConector(
+      idConector,
+      novaTemperatura
+          .clamp(_temperaturaMinimaSimuladaC, _temperaturaMaximaSimuladaC)
+          .toDouble(),
+    );
   }
 
   Future<void> _executar(Future<void> Function() acao) async {
@@ -724,9 +1010,11 @@ class CarregadorWidgetViewModel {
       await acao();
     } catch (error) {
       _registrarErro(error);
-      estado.value = conectado.value
-          ? EstadoCarregador.falha
-          : EstadoCarregador.desconectado;
+      _atualizarEstadoAtivo(
+        conectado.value
+            ? EstadoCarregador.falha
+            : EstadoCarregador.desconectado,
+      );
     } finally {
       ocupado.value = false;
     }
@@ -761,64 +1049,93 @@ class CarregadorWidgetViewModel {
   void _pararTimers() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-    _medidorTimer?.cancel();
-    _medidorTimer = null;
-    _pararTimerTempoCarregamento();
-    _ultimaAtualizacaoMedidor = null;
-    _inicioPeriodoCarregamento = null;
+    for (final MapEntry<int, _EstadoOperacionalConector> entry
+        in _estadosPorConector.entries) {
+      final idConector = entry.key;
+      final estadoConector = entry.value;
+      estadoConector.medidorTimer?.cancel();
+      estadoConector.medidorTimer = null;
+      estadoConector.tempoCarregamentoTimer?.cancel();
+      estadoConector.tempoCarregamentoTimer = null;
+      _atualizarTempoCarregamentoDoConectorAtual(idConector);
+      estadoConector.ultimaAtualizacaoMedidor = null;
+      estadoConector.inicioPeriodoCarregamento = null;
+    }
   }
 
   void _reiniciarTempoCarregamento() {
-    _tempoCarregamentoAcumulado = Duration.zero;
-    _inicioPeriodoCarregamento = null;
-    tempoCarregamento.value = Duration.zero;
-    _pararTimerTempoCarregamento();
+    _reiniciarTempoCarregamentoDoConector(conectorId.value);
   }
 
-  void _iniciarTempoCarregamento() {
-    _pararTimerTempoCarregamento();
-    _inicioPeriodoCarregamento = DateTime.now();
-    _atualizarTempoCarregamento();
-    _tempoCarregamentoTimer = Timer.periodic(
+  void _reiniciarTempoCarregamentoDoConector(int idConector) {
+    final estadoConector = _obterEstadoConector(idConector)
+      ..tempoCarregamentoAcumulado = Duration.zero
+      ..inicioPeriodoCarregamento = null;
+    estadoConector.tempoCarregamento = Duration.zero;
+    _atualizarTempoCarregamentoDoConector(idConector, Duration.zero);
+    _pararTimerTempoCarregamentoDoConector(idConector);
+  }
+
+  void _iniciarTempoCarregamentoDoConector(int idConector) {
+    final estadoConector = _obterEstadoConector(idConector);
+    _pararTimerTempoCarregamentoDoConector(idConector);
+    estadoConector.inicioPeriodoCarregamento = _agora();
+    _atualizarTempoCarregamentoDoConectorAtual(idConector);
+    estadoConector.tempoCarregamentoTimer = Timer.periodic(
       const Duration(seconds: 1),
-      (_) => _atualizarTempoCarregamento(),
+      (_) => _atualizarTempoCarregamentoDoConectorAtual(idConector),
     );
   }
 
-  void _acumularTempoCarregamento() {
-    final inicio = _inicioPeriodoCarregamento;
+  void _acumularTempoCarregamentoDoConector(int idConector) {
+    final estadoConector = _obterEstadoConector(idConector);
+    final inicio = estadoConector.inicioPeriodoCarregamento;
     if (inicio == null) {
       return;
     }
 
-    final decorrido = DateTime.now().difference(inicio);
+    final decorrido = _agora().difference(inicio);
     if (!decorrido.isNegative) {
-      _tempoCarregamentoAcumulado += decorrido;
+      estadoConector.tempoCarregamentoAcumulado += decorrido;
     }
 
-    _inicioPeriodoCarregamento = null;
-    tempoCarregamento.value = _tempoCarregamentoAcumulado;
+    estadoConector.inicioPeriodoCarregamento = null;
+    _atualizarTempoCarregamentoDoConector(
+      idConector,
+      estadoConector.tempoCarregamentoAcumulado,
+    );
   }
 
-  void _atualizarTempoCarregamento() {
-    final inicio = _inicioPeriodoCarregamento;
+  void _atualizarTempoCarregamentoDoConectorAtual(int idConector) {
+    final estadoConector = _obterEstadoConector(idConector);
+    final inicio = estadoConector.inicioPeriodoCarregamento;
     if (inicio == null) {
-      tempoCarregamento.value = _tempoCarregamentoAcumulado;
+      _atualizarTempoCarregamentoDoConector(
+        idConector,
+        estadoConector.tempoCarregamentoAcumulado,
+      );
       return;
     }
 
-    final decorrido = DateTime.now().difference(inicio);
+    final decorrido = _agora().difference(inicio);
     if (decorrido.isNegative) {
-      tempoCarregamento.value = _tempoCarregamentoAcumulado;
+      _atualizarTempoCarregamentoDoConector(
+        idConector,
+        estadoConector.tempoCarregamentoAcumulado,
+      );
       return;
     }
 
-    tempoCarregamento.value = _tempoCarregamentoAcumulado + decorrido;
+    _atualizarTempoCarregamentoDoConector(
+      idConector,
+      estadoConector.tempoCarregamentoAcumulado + decorrido,
+    );
   }
 
-  void _pararTimerTempoCarregamento() {
-    _tempoCarregamentoTimer?.cancel();
-    _tempoCarregamentoTimer = null;
+  void _pararTimerTempoCarregamentoDoConector(int idConector) {
+    final estadoConector = _obterEstadoConector(idConector);
+    estadoConector.tempoCarregamentoTimer?.cancel();
+    estadoConector.tempoCarregamentoTimer = null;
   }
 
   void _registrarErro(Object error) {
@@ -828,7 +1145,7 @@ class CarregadorWidgetViewModel {
   }
 
   void _registrarEvento(String evento) {
-    final agora = DateTime.now();
+    final agora = _agora();
     final horario =
         '${agora.hour.toString().padLeft(2, '0')}:'
         '${agora.minute.toString().padLeft(2, '0')}:'
@@ -878,4 +1195,113 @@ class CarregadorWidgetViewModel {
   double? _lerDecimal(String valor) {
     return double.tryParse(valor.trim().replaceAll(',', '.'));
   }
+}
+
+final class DadosOperacionaisConectorCarregador {
+  const DadosOperacionaisConectorCarregador({
+    required this.medidorWh,
+    required this.medidorInicioTransacaoWh,
+    required this.potenciaW,
+    required this.soc,
+    required this.temperaturaC,
+    required this.capacidadeBateriaKwh,
+    required this.tempoCarregamento,
+    required this.transacaoId,
+    required this.statusConector,
+    required this.estado,
+  });
+
+  final int medidorWh;
+  final int medidorInicioTransacaoWh;
+  final double potenciaW;
+  final double soc;
+  final double temperaturaC;
+  final double capacidadeBateriaKwh;
+  final Duration tempoCarregamento;
+  final int? transacaoId;
+  final StatusConectorOcpp statusConector;
+  final EstadoCarregador estado;
+
+  double get energiaFornecidaKwh {
+    final energiaWh = max(0, medidorWh - medidorInicioTransacaoWh);
+    return energiaWh / 1000;
+  }
+
+  Duration? get tempoRestante {
+    final potenciaKw = potenciaW / 1000;
+
+    if (potenciaKw <= 0 || capacidadeBateriaKwh <= 0 || soc >= 100) {
+      return null;
+    }
+
+    final energiaRestanteKwh = capacidadeBateriaKwh * ((100 - soc) / 100);
+    return Duration(minutes: ((energiaRestanteKwh / potenciaKw) * 60).ceil());
+  }
+}
+
+Map<int, StatusConectorOcpp> _criarStatusConectoresIniciais(
+  Iterable<int>? idsConectoresConfigurados,
+  int conectorIdInicial,
+) {
+  return Map<int, StatusConectorOcpp>.unmodifiable(<int, StatusConectorOcpp>{
+    for (final id in _normalizarIdsConectores(
+      idsConectoresConfigurados,
+      conectorIdInicial,
+    ))
+      id: StatusConectorOcpp.available,
+  });
+}
+
+List<int> _normalizarIdsConectores(
+  Iterable<int>? idsConectoresConfigurados,
+  int conectorIdInicial,
+) {
+  final ids = <int>{};
+  if (conectorIdInicial >= 1) {
+    ids.add(conectorIdInicial);
+  }
+
+  for (final id in idsConectoresConfigurados ?? const <int>[]) {
+    if (id >= 1) {
+      ids.add(id);
+    }
+  }
+
+  if (ids.isEmpty) {
+    ids.add(1);
+  }
+
+  return ids.toList(growable: false);
+}
+
+final class _EstadoOperacionalConector {
+  _EstadoOperacionalConector({
+    required this.medidorWh,
+    required this.medidorInicioTransacaoWh,
+    required this.potenciaW,
+    required this.soc,
+    required this.temperaturaC,
+    required this.capacidadeBateriaKwh,
+    required this.tempoCarregamento,
+    required this.transacaoId,
+    required this.statusConector,
+    required this.estado,
+  });
+
+  int medidorWh;
+  int medidorInicioTransacaoWh;
+  double potenciaW;
+  double soc;
+  double temperaturaC;
+  double capacidadeBateriaKwh;
+  Duration tempoCarregamento;
+  int? transacaoId;
+  StatusConectorOcpp statusConector;
+  EstadoCarregador estado;
+  Timer? medidorTimer;
+  Timer? tempoCarregamentoTimer;
+  Duration tempoCarregamentoAcumulado = Duration.zero;
+  DateTime? ultimaAtualizacaoMedidor;
+  DateTime? inicioPeriodoCarregamento;
+  bool enviandoValores = false;
 }

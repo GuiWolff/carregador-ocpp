@@ -245,6 +245,7 @@ void main() {
         tester,
         'conector_chip_CP-2C_1',
         TemaApp.temaClaro().colorScheme.surfaceContainerHighest,
+        corBordaEsperada: TemaApp.temaClaro().colorScheme.primary,
       );
       _expectConectorDecoracao(
         tester,
@@ -424,6 +425,7 @@ void main() {
         tester,
         'conector_chip_CP-1C_1',
         TemaApp.temaClaro().colorScheme.surfaceContainerHighest,
+        corBordaEsperada: TemaApp.temaClaro().colorScheme.primary,
       );
     });
 
@@ -588,6 +590,125 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets('painel opera o conector configurado selecionado', (
+      tester,
+    ) async {
+      final repositorio = _ConfiguracaoCarregadorRepositoryFalso(
+        carregadores: <CarregadorConfigurado>[
+          _criarCarregadorComDoisConectores('CP-2C'),
+        ],
+      );
+      final repositoriosOperacionais =
+          <String, _CarregadorRepositoryOperacionalFalso>{};
+      final viewModel = _criarViewModel(repositorio, repositoriosOperacionais);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        viewModel.dispose();
+        await _fecharRepositorios(repositoriosOperacionais);
+      });
+
+      await viewModel.carregar();
+      final carregadorViewModel = viewModel.viewModelDoCarregador('CP-2C')!
+        ..conectado.value = true;
+      carregadorViewModel.atualizarPotencia('7400');
+      carregadorViewModel.atualizarMedidor('1200');
+      carregadorViewModel.atualizarSoc('30');
+      carregadorViewModel.atualizarTemperatura('34');
+      carregadorViewModel.selecionarConector(2);
+      carregadorViewModel.atualizarPotencia('22000');
+      carregadorViewModel.atualizarMedidor('8600');
+      carregadorViewModel.atualizarSoc('72.5');
+      carregadorViewModel.atualizarTemperatura('41.2');
+      carregadorViewModel.selecionarConector(1);
+
+      await _pumpCarregadoresPage(tester, viewModel);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('carregador_botao_CP-2C')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('carregador_conector')), findsNothing);
+
+      final botaoIniciar = find.byKey(const Key('carregador_iniciar'));
+      await tester.ensureVisible(botaoIniciar);
+      await tester.pumpAndSettle();
+      await tester.tap(botaoIniciar);
+      await tester.pumpAndSettle();
+
+      final repositorioOperacional = repositoriosOperacionais['CP-2C']!;
+      expect(repositorioOperacional.inicios.single['conectorId'], 1);
+
+      final botaoMeterValues = find.byKey(const Key('carregador_meter_values'));
+      await tester.ensureVisible(botaoMeterValues);
+      await tester.pumpAndSettle();
+      await tester.tap(botaoMeterValues);
+      await tester.pumpAndSettle();
+      expect(repositorioOperacional.valoresMedidor.last['conectorId'], 1);
+
+      final seletorConector = find.byKey(
+        const ValueKey<String>('carregador_conector_1'),
+      );
+      await tester.ensureVisible(seletorConector);
+      await tester.pumpAndSettle();
+      await tester.tap(seletorConector);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Conector 2 - GB/T').last);
+      await tester.pumpAndSettle();
+
+      expect(_textoCampo(tester, const Key('carregador_potencia')), '22000');
+      expect(_textoCampo(tester, const Key('carregador_medidor')), '8600');
+      expect(_textoCampo(tester, const Key('carregador_soc')), '72.5');
+      expect(_textoCampo(tester, const Key('carregador_temperatura')), '41.2');
+
+      await tester.ensureVisible(botaoIniciar);
+      await tester.pumpAndSettle();
+      await tester.tap(botaoIniciar);
+      await tester.pumpAndSettle();
+
+      expect(repositorioOperacional.inicios.last['conectorId'], 2);
+      expect(carregadorViewModel.conectorId.value, 2);
+
+      await tester.ensureVisible(botaoMeterValues);
+      await tester.pumpAndSettle();
+      await tester.tap(botaoMeterValues);
+      await tester.pumpAndSettle();
+      expect(repositorioOperacional.valoresMedidor.last['conectorId'], 2);
+
+      final seletorConector2 = find.byKey(
+        const ValueKey<String>('carregador_conector_2'),
+      );
+      await tester.ensureVisible(seletorConector2);
+      await tester.pumpAndSettle();
+      await tester.tap(seletorConector2);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Conector 1 - CCS2').last);
+      await tester.pumpAndSettle();
+
+      final botaoParar = find.byKey(const Key('carregador_parar'));
+      await tester.ensureVisible(botaoParar);
+      await tester.pumpAndSettle();
+      await tester.tap(botaoParar);
+      await tester.pumpAndSettle();
+
+      expect(repositorioOperacional.finalizacoes, hasLength(1));
+      expect(repositorioOperacional.finalizacoes.single['transacaoId'], 1001);
+      expect(
+        carregadorViewModel.statusDoConector(1),
+        StatusConectorOcpp.available,
+      );
+
+      carregadorViewModel.selecionarConector(2);
+      expect(carregadorViewModel.transacaoId.value, 1002);
+      expect(carregadorViewModel.estado.value, EstadoCarregador.carregando);
+      expect(
+        carregadorViewModel.statusConector.value,
+        StatusConectorOcpp.charging,
+      );
+
+      await carregadorViewModel.pararCarregamento();
+      await tester.pumpAndSettle();
+    });
   });
 }
 
@@ -607,8 +728,9 @@ Future<void> _pumpCarregadoresPage(
 void _expectConectorDecoracao(
   WidgetTester tester,
   String key,
-  Color corFundoEsperada,
-) {
+  Color corFundoEsperada, {
+  Color? corBordaEsperada,
+}) {
   final decoracao =
       tester
               .widgetList<DecoratedBox>(
@@ -622,7 +744,16 @@ void _expectConectorDecoracao(
           as BoxDecoration;
 
   expect(decoracao.color, corFundoEsperada);
-  expect(decoracao.border, isNull);
+  final borda = decoracao.border as Border?;
+  if (corBordaEsperada == null) {
+    expect(borda, isNull);
+  } else {
+    expect(borda?.top.color, corBordaEsperada);
+  }
+}
+
+String _textoCampo(WidgetTester tester, Key key) {
+  return tester.widget<TextField>(find.byKey(key)).controller?.text ?? '';
 }
 
 CarregadoresPageViewModel _criarViewModel(
@@ -635,7 +766,13 @@ CarregadoresPageViewModel _criarViewModel(
     criarCarregadorViewModel: (configuracao) {
       final repositorioOperacional = _CarregadorRepositoryOperacionalFalso();
       repositoriosOperacionais[configuracao.id] = repositorioOperacional;
-      return CarregadorWidgetViewModel(repository: repositorioOperacional);
+      return CarregadorWidgetViewModel(
+        repository: repositorioOperacional,
+        conectorIdInicial: configuracao.conectores.first.id,
+        idsConectoresConfigurados: configuracao.conectores.map(
+          (conector) => conector.id,
+        ),
+      );
     },
   );
 }
@@ -698,6 +835,9 @@ final class _CarregadorRepositoryOperacionalFalso
   final _mensagens = StreamController<MensagemOcpp>.broadcast();
   final _chamadas = StreamController<ChamadaOcpp>.broadcast();
   final statusNotifications = <Map<String, dynamic>>[];
+  final inicios = <Map<String, dynamic>>[];
+  final valoresMedidor = <Map<String, dynamic>>[];
+  final finalizacoes = <Map<String, dynamic>>[];
   var desconexoes = 0;
 
   @override
@@ -712,6 +852,93 @@ final class _CarregadorRepositoryOperacionalFalso
   @override
   Future<void> desconectar() async {
     desconexoes++;
+  }
+
+  @override
+  Future<void> conectar(
+    Uri servidor, {
+    Iterable<String> protocolos = const <String>['ocpp1.6'],
+    Duration timeout = const Duration(seconds: 10),
+  }) async {}
+
+  @override
+  Future<Map<String, dynamic>> enviarBootNotification({
+    required String fabricante,
+    required String modelo,
+    String? numeroSeriePontoCarga,
+    String? numeroSerieChargeBox,
+    String? versaoFirmware,
+    String? iccid,
+    String? imsi,
+    String? tipoMedidor,
+    String? numeroSerieMedidor,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    return const <String, dynamic>{'status': 'Accepted', 'interval': 300};
+  }
+
+  @override
+  Future<Map<String, dynamic>> autorizar({
+    required String idTag,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    return const <String, dynamic>{
+      'idTagInfo': <String, dynamic>{'status': 'Accepted'},
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> iniciarTransacao({
+    required int conectorId,
+    required String idTag,
+    required int medidorInicialWh,
+    DateTime? data,
+    int? reservaId,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    inicios.add(<String, dynamic>{
+      'conectorId': conectorId,
+      'idTag': idTag,
+      'medidorInicialWh': medidorInicialWh,
+    });
+
+    return <String, dynamic>{'transactionId': 1000 + conectorId};
+  }
+
+  @override
+  Future<Map<String, dynamic>> enviarValoresMedidor({
+    required int conectorId,
+    required List<ValorMedidoOcpp> valores,
+    int? transacaoId,
+    DateTime? data,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    valoresMedidor.add(<String, dynamic>{
+      'conectorId': conectorId,
+      'transacaoId': transacaoId,
+      'valores': valores,
+    });
+
+    return const <String, dynamic>{};
+  }
+
+  @override
+  Future<Map<String, dynamic>> finalizarTransacao({
+    required int transacaoId,
+    required int medidorFinalWh,
+    DateTime? data,
+    String? idTag,
+    MotivoFimTransacaoOcpp? motivo,
+    List<ValorMedidoOcpp> valoresTransacao = const <ValorMedidoOcpp>[],
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    finalizacoes.add(<String, dynamic>{
+      'transacaoId': transacaoId,
+      'medidorFinalWh': medidorFinalWh,
+      'motivo': motivo?.valor,
+    });
+
+    return const <String, dynamic>{};
   }
 
   @override
